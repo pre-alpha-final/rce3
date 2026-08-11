@@ -1,0 +1,6 @@
+@FeedServer_HostAddress = http://localhost:5137
+
+GET {{FeedServer_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
