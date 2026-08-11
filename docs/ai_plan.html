@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RemoteControlledElectronics Next Version Project Plan</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f2;
+      --ink: #1e2420;
+      --muted: #5f6b63;
+      --line: #ccd5cc;
+      --panel: #ffffff;
+      --accent: #176b87;
+      --accent-2: #8a4f2a;
+      --ok: #1d7d4f;
+      --warn: #9b5f00;
+      --code: #eef3ef;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.55;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 56px;
+    }
+
+    header {
+      border-bottom: 3px solid var(--accent);
+      padding-bottom: 20px;
+      margin-bottom: 28px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 3.3rem);
+      max-width: 860px;
+    }
+
+    h2 {
+      color: var(--accent);
+      font-size: 1.45rem;
+      margin-top: 34px;
+      margin-bottom: 12px;
+    }
+
+    h3 {
+      font-size: 1.05rem;
+      margin-top: 18px;
+      margin-bottom: 8px;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    .lede {
+      color: var(--muted);
+      font-size: 1.12rem;
+      max-width: 900px;
+      margin-top: 14px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--muted);
+      padding: 5px 12px;
+      font-size: 0.9rem;
+    }
+
+    section {
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+    }
+
+    .summary-grid,
+    .phase-grid,
+    .risk-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .summary-grid {
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      margin: 16px 0 8px;
+    }
+
+    .phase-grid {
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+
+    .risk-grid {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--accent-2);
+    }
+
+    ul,
+    ol {
+      margin: 8px 0 0 22px;
+      padding: 0;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      display: block;
+    }
+
+    thead,
+    tbody,
+    tr {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 11px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #e9efec;
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    code {
+      background: var(--code);
+      border: 1px solid #dbe5dc;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.95em;
+    }
+
+    .status {
+      font-weight: 700;
+    }
+
+    .must {
+      color: var(--ok);
+    }
+
+    .watch {
+      color: var(--warn);
+    }
+
+    @media (max-width: 720px) {
+      main {
+        width: min(100% - 20px, 1120px);
+        padding-top: 20px;
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+        width: 100%;
+      }
+
+      thead {
+        display: none;
+      }
+
+      tr {
+        border-bottom: 1px solid var(--line);
+      }
+
+      td {
+        border-bottom: 0;
+        padding: 9px 12px;
+      }
+
+      td::before {
+        content: attr(data-label);
+        display: block;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: 2px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>RemoteControlledElectronics Next Version Project Plan</h1>
+      <p class="lede">
+        Build a smaller, easier-to-use successor to the existing RCE project: a minimal ephemeral feed service where clients can post raw request bodies to a feed and readers can long-poll that feed without schemas, message types, or required client libraries.
+      </p>
+      <div class="meta" aria-label="Project summary">
+        <span class="pill">Reference: rce2 concept only</span>
+        <span class="pill">Primary goal: pick up and use</span>
+        <span class="pill">Core pattern: POST plus long polling</span>
+        <span class="pill">Retention: inactive feeds expire after 24h</span>
+      </div>
+    </header>
+
+    <section>
+      <h2>Product Direction</h2>
+      <div class="summary-grid">
+        <div class="card">
+          <strong>North Star</strong>
+          Make remote electronics control feel like writing to and reading from a temporary shared pipe over HTTP.
+        </div>
+        <div class="card">
+          <strong>Design Rule</strong>
+          Do not add formats, types, sessions, sender identities, or receiver identities unless they are required for correctness.
+        </div>
+        <div class="card">
+          <strong>User Promise</strong>
+          A user can create a feed implicitly, post arbitrary data, and connect multiple independent readers with almost no setup.
+        </div>
+        <div class="card">
+          <strong>Operational Promise</strong>
+          Feeds are temporary, simple to reason about, and automatically cleaned up after inactivity.
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Scope</h2>
+      <h3>In Scope</h3>
+      <ul>
+        <li>HTTP endpoints for feed help, posting messages, and long-polling reader queues.</li>
+        <li>Implicit feed creation on first valid request.</li>
+        <li>Feed mode selection at creation: open or Basic-auth protected.</li>
+        <li>Pass-through message bodies with minimal server interpretation.</li>
+        <li>Multiple readers per feed, each with its own queue.</li>
+        <li>System-wide reader GUID uniqueness.</li>
+        <li>Feed expiration after 24 hours without GET or POST activity.</li>
+        <li>Reader cleanup when the parent feed expires.</li>
+        <li>Bare-bones browser-readable help at <code>GET /feed-guid</code>.</li>
+      </ul>
+
+      <h3>Design Boundaries</h3>
+      <ul>
+        <li>User accounts, sender identity, receiver identity, and delivery acknowledgements.</li>
+        <li>Message schemas, type negotiation, format validation, or special device protocols.</li>
+        <li>Persistent history after feed deletion.</li>
+        <li>Per-reader authentication beyond the feed-level mode.</li>
+        <li>Administrative dashboards in the product surface.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>API Contract</h2>
+      <table aria-label="API endpoints">
+        <thead>
+          <tr>
+            <th>Endpoint</th>
+            <th>Purpose</th>
+            <th>Request</th>
+            <th>Response</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-label="Endpoint"><code>GET /{feedGuid}</code></td>
+            <td data-label="Purpose">Create or touch a feed, then show minimal integration help.</td>
+            <td data-label="Request">Optional Basic auth only if creating or accessing a protected feed.</td>
+            <td data-label="Response">Plain text or simple HTML help with the three endpoint patterns and auth rule.</td>
+          </tr>
+          <tr>
+            <td data-label="Endpoint"><code>POST /{feedGuid}</code></td>
+            <td data-label="Purpose">Publish the request body to every active reader queue on the feed.</td>
+            <td data-label="Request">Raw body. No required content type. Auth must match the feed mode exactly.</td>
+            <td data-label="Response">Small success response after the message is accepted for distribution.</td>
+          </tr>
+          <tr>
+            <td data-label="Endpoint"><code>GET /{feedGuid}/{readerGuid}</code></td>
+            <td data-label="Purpose">Create or touch a reader queue and long-poll for the next message.</td>
+            <td data-label="Request">Reader GUID must be unique system-wide. Auth must match the feed mode exactly.</td>
+            <td data-label="Response">Return one queued message at a time using the original message <code>Content-Type</code>, or return an empty timeout response after 30 seconds.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Recommended Status Codes</h3>
+      <ul>
+        <li><code>200 OK</code> for help, successful post acceptance, and successful long-poll message delivery.</li>
+        <li><code>204 No Content</code> when a long-poll request times out after 30 seconds with no messages.</li>
+        <li><code>400 Bad Request</code> for malformed feed GUIDs, malformed reader GUIDs, or unusable request paths.</li>
+        <li><code>401 Unauthorized</code> when a protected feed is accessed without the correct Basic auth credentials.</li>
+        <li><code>403 Forbidden</code> when an open feed is accessed with Basic auth, because protected access to an open feed is explicitly invalid.</li>
+        <li><code>409 Conflict</code> when a reader GUID is already bound to another feed.</li>
+        <li><code>413 Payload Too Large</code> when a message exceeds the configured maximum body size.</li>
+        <li><code>500 Internal Server Error</code> when a reader queue has exceeded its configured size limit and has become unusable.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Lifecycle Rules</h2>
+      <h3>Feed Lifecycle</h3>
+      <ol>
+        <li>Any valid request for a missing feed creates that feed.</li>
+        <li>If the creation request includes Basic auth, the feed becomes protected and that supplied credential becomes the feed key.</li>
+        <li>If the creation request has no Basic auth header, the feed becomes open.</li>
+        <li>The selected mode is permanent for the life of the feed.</li>
+        <li>Protected feeds require matching Basic auth on every request.</li>
+        <li>Open feeds require no Basic auth; requests that include Basic auth are rejected.</li>
+        <li>Each valid GET or POST updates the feed activity timestamp.</li>
+        <li>A feed is deleted after 24 hours without any valid GET or POST activity.</li>
+      </ol>
+
+      <h3>Reader Lifecycle</h3>
+      <ol>
+        <li><code>GET /{feedGuid}/{readerGuid}</code> creates a reader queue if the reader GUID is unused.</li>
+        <li>A reader GUID is globally unique across the whole service, not only within one feed.</li>
+        <li>Each message posted to a feed is appended to every active reader queue for that feed.</li>
+        <li>Readers receive their own posted messages because the system has no sender identity.</li>
+        <li>Readers are deleted when their parent feed is deleted.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Implementation Plan</h2>
+      <div class="phase-grid">
+        <div class="card">
+          <strong>Phase 1: Foundation</strong>
+          <ul>
+            <li>Select the runtime and HTTP framework for the new service.</li>
+            <li>Create route parsing for <code>/{feedGuid}</code> and <code>/{feedGuid}/{readerGuid}</code>.</li>
+            <li>Require feed and reader IDs to parse cleanly as C# <code>Guid</code> values and add clear bad-path handling.</li>
+            <li>Add configuration for port, poll timeout, feed TTL, and max message size.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <strong>Phase 2: Feed Handling</strong>
+          <ul>
+            <li>Implement feed creation on first valid request.</li>
+            <li>Store feed mode, hashed protected key, reader list, and last activity timestamp.</li>
+            <li>Enforce exact auth-mode matching for open and protected feeds.</li>
+            <li>Return bare-bones help for <code>GET /{feedGuid}</code>.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <strong>Phase 3: Reader Queues</strong>
+          <ul>
+            <li>Create globally unique reader queues on first reader request.</li>
+            <li>Reject reader GUID collisions across feeds.</li>
+            <li>Queue messages independently for each reader.</li>
+            <li>Define queue backpressure limits so inactive readers cannot exhaust memory.</li>
+            <li>Mark a reader unusable when its queue exceeds the configured limit; future reads return <code>500</code> with an appropriate description until the feed is deleted.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <strong>Phase 4: Long Polling</strong>
+          <ul>
+            <li>Return immediately when a reader already has queued messages.</li>
+            <li>Return exactly one queued message per long-poll response for maximum transparency.</li>
+            <li>Hold pending reader requests for up to 30 seconds.</li>
+            <li>Wake pending readers as soon as a new message arrives.</li>
+            <li>Handle disconnects, cancellations, and server shutdown cleanly.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <strong>Phase 5: Expiration</strong>
+          <ul>
+            <li>Run a periodic cleanup job for feeds inactive for 24 hours.</li>
+            <li>Delete all reader queues owned by an expired feed.</li>
+            <li>Complete pending reader polls before or during deletion with a clear empty response.</li>
+            <li>Add metrics or logs for creation, post, timeout, rejection, and expiration events.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <strong>Phase 6: Hardening</strong>
+          <ul>
+            <li>Add request size limits, slow-client protection, and concurrency tests.</li>
+            <li>Document operational limits and deployment settings.</li>
+            <li>Create example curl commands for open and protected feeds.</li>
+            <li>Prepare a minimal release package and smoke-test script.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Runtime Notes</h2>
+      <ul>
+        <li>There is no public data model, message model, envelope, type registry, or required format.</li>
+        <li>The service keeps only the private in-memory state needed to route messages, enforce feed mode, hold reader queues, and expire inactive feeds.</li>
+        <li>Feed mode is either open or protected and cannot change after creation.</li>
+        <li>Reader GUIDs must be valid C# <code>Guid</code> values and unique across all feeds.</li>
+        <li>The server preserves the posted body and returns the original <code>Content-Type</code> when the message is read.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Testing Plan</h2>
+      <ul>
+        <li><span class="status must">Contract tests:</span> verify all three endpoint shapes, expected status codes, body pass-through, and timeout behavior.</li>
+        <li><span class="status must">Auth tests:</span> cover open feed creation, protected feed creation, wrong key, missing key, and protected request sent to an open feed.</li>
+        <li><span class="status must">Queue tests:</span> prove that each reader receives every feed message independently, including messages posted by the same client, one message per read response.</li>
+        <li><span class="status must">Content tests:</span> verify that the original <code>Content-Type</code> is preserved when a message is returned to a reader.</li>
+        <li><span class="status must">Collision tests:</span> reject a reader GUID that already exists on another feed.</li>
+        <li><span class="status must">Expiration tests:</span> delete feeds after 24 hours of inactivity and remove their readers.</li>
+        <li><span class="status must">Overflow tests:</span> verify that a reader whose queue exceeds the configured size limit becomes unusable and returns <code>500</code> with a useful description.</li>
+        <li><span class="status watch">Load tests:</span> simulate many long-poll readers and bursty posts to validate memory and concurrency limits.</li>
+        <li><span class="status watch">Network tests:</span> verify cancellation behavior when clients disconnect before a long-poll response.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Operational Decisions</h2>
+      <ul>
+        <li>Set a maximum message body size before launch. The project can stay format-free while still protecting the service from unbounded memory use.</li>
+        <li>Set a maximum queued messages or queued bytes per reader. When the limit is exceeded, mark that reader unusable and return <code>500</code> with an appropriate description for future reads.</li>
+        <li>Hash stored Basic-auth credentials instead of keeping feed keys in plain text.</li>
+        <li>Use monotonic or injected clocks in tests so 24-hour expiration is reliable and fast to verify.</li>
+        <li>Prefer simple structured logs even if the public API remains unstructured.</li>
+        <li>Use memory-only storage for this version. Feeds and readers disappear on process restart.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Risks and Mitigations</h2>
+      <div class="risk-grid">
+        <div class="card">
+          <strong>Unbounded Queues</strong>
+          Inactive readers can accumulate messages forever during a feed lifetime. Add queue limits and a documented overflow policy.
+        </div>
+        <div class="card">
+          <strong>Long-Poll Resource Use</strong>
+          Many connected readers can consume file descriptors and memory. Use efficient async handling and test with realistic concurrency.
+        </div>
+        <div class="card">
+          <strong>Auth Ambiguity</strong>
+          Open feeds reject Basic auth and protected feeds require it. Keep this strict rule visible in help text and tests.
+        </div>
+        <div class="card">
+          <strong>Restart Semantics</strong>
+          Feeds disappear on restart because this version is memory-only. Document this clearly in the help text and README.
+        </div>
+        <div class="card">
+          <strong>GUID Guessing</strong>
+          Feed and reader GUIDs act as capability URLs. Require values that map into C# <code>Guid</code> and recommend random values in docs.
+        </div>
+        <div class="card">
+          <strong>Message Interpretation</strong>
+          Adding conveniences can slowly create formats. Keep the server pass-through and move device-specific behavior to clients.
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Milestones</h2>
+      <ol>
+        <li><strong>Prototype:</strong> in-memory feeds, POST fanout, and reader long polling working locally.</li>
+        <li><strong>Contract Complete:</strong> strict auth mode behavior, reader uniqueness, help page, and status codes covered by tests.</li>
+        <li><strong>Lifecycle Complete:</strong> feed inactivity expiration and reader cleanup implemented and tested.</li>
+        <li><strong>Hardening Complete:</strong> request limits, queue limits, cancellation handling, logs, and load smoke tests in place.</li>
+        <li><strong>Release Candidate:</strong> README examples, deployment notes, and a clean end-to-end smoke test for open and protected feeds.</li>
+      </ol>
+    </section>
+
+  </main>
+</body>
+</html>
