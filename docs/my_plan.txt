@@ -1,0 +1,29 @@
+We're making a next version of:
+https://github.com/pre-alpha-final/rce2
+use the reference only for rough idea, cause we'll be changing most of it.
+
+The idea is to make it even simpler, remove even more redtape so that it's pick up and use. No formats, no types, no nothing unless absolutely necessary.
+
+Address structure:
+GET /feed-guid - displays bare bones help on how to integrate to the system
+POST /feed-guid - posts to the feed. the body will be send to every active reader of the feed.
+GET /feed-guid/reader-guid - long pooling to get the feed. returns after 30 seconds with no messages, or at once when something comes to the feed.
+
+Feed lifecycle:
+1. A request is made for a feed. If it doesn't exist it is created.
+2. At time of creation the feed is created as either password protected or not.
+- if first request has a key supplied as basic-auth in request header, that is the feed key
+- if first request doesn't have a basic-auth header the feed is not password protected - open
+- once a mode is chosed it cannot be changed, and only works with requests that correctly have or don't have the key. i.e. a protected request to an open feed is still wrong.
+3. Messages coming into the feed are distributed to all readers of that feed.
+4. Feed is deleted after 24h witout any GET/POST activity.
+
+Readers lifecycle:
+A reader is an instance of a queue of specific feed. So multiple readers can read the same feed and still all readers get all the messages.
+1. When request:
+GET /feed-guid/reader-guid
+is made, a messge queue with reader-guid is created.
+2. Reader guids need to be unique system wide, not only per feed.
+3. When a message comes into the feed, it is distributed to all readers subscribed to the feed.
+4. Since there is no identity of senders and receivers, you will receive your own messages. This is fine.
+5. Readers are deleted when the feed is deleted.
