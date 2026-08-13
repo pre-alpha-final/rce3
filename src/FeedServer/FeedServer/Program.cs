@@ -16,6 +16,8 @@ public class Program
             .Bind(builder.Configuration.GetSection(FeedServerOptions.SectionName))
             .Validate(FeedServerOptions.IsValid, FeedServerOptions.ValidationFailureMessage)
             .ValidateOnStart();
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton<FeedStore>();
 
         builder.WebHost.ConfigureKestrel(options =>
         {

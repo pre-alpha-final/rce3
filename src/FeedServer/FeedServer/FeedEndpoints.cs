@@ -23,19 +23,33 @@ public static class FeedEndpoints
         app.MapMethods("/{*path}", SupportedMethods, BadPath);
     }
 
-    private static IResult GetFeed(string feedGuid, IOptions<FeedServerOptions> options)
+    private static IResult GetFeed(
+        string feedGuid,
+        HttpRequest request,
+        FeedStore feedStore,
+        IOptions<FeedServerOptions> options)
     {
         if (!FeedRouteParser.TryParseFeed(feedGuid, out var feedId, out var problem))
         {
             return BadRequest("Bad feed route", problem);
         }
 
-        return Results.Text(FeedHelpText.Create(feedId, options.Value), "text/plain");
+        var access = GetFeedAccess(request, feedStore, feedId);
+        if (!access.Succeeded)
+        {
+            return AccessFailure(access);
+        }
+
+        return Results.Text(FeedHelpText.Create(access.Feed, options.Value), "text/plain");
     }
 
-    private static IResult PostFeed(string feedGuid, HttpRequest request, IOptions<FeedServerOptions> options)
+    private static IResult PostFeed(
+        string feedGuid,
+        HttpRequest request,
+        FeedStore feedStore,
+        IOptions<FeedServerOptions> options)
     {
-        if (!FeedRouteParser.TryParseFeed(feedGuid, out _, out var problem))
+        if (!FeedRouteParser.TryParseFeed(feedGuid, out var feedId, out var problem))
         {
             return BadRequest("Bad feed route", problem);
         }
@@ -48,15 +62,32 @@ public static class FeedEndpoints
                 statusCode: StatusCodes.Status413PayloadTooLarge);
         }
 
-        return NotImplemented("Feed posting will be implemented in phase 2.");
+        var access = GetFeedAccess(request, feedStore, feedId);
+        if (!access.Succeeded)
+        {
+            return AccessFailure(access);
+        }
+
+        return Results.Text("Message accepted for feed handling. Reader queues will be implemented in phase 3.", "text/plain");
     }
 
-    private static IResult GetReader(string feedGuid, string readerGuid, IOptions<FeedServerOptions> options)
+    private static IResult GetReader(
+        string feedGuid,
+        string readerGuid,
+        HttpRequest request,
+        FeedStore feedStore,
+        IOptions<FeedServerOptions> options)
     {
-        var route = FeedRouteParser.TryParseReader(feedGuid, readerGuid, out _, out _, out var problem);
+        var route = FeedRouteParser.TryParseReader(feedGuid, readerGuid, out var feedId, out _, out var problem);
         if (!route)
         {
             return BadRequest("Bad reader route", problem);
+        }
+
+        var access = GetFeedAccess(request, feedStore, feedId);
+        if (!access.Succeeded)
+        {
+            return AccessFailure(access);
         }
 
         return NotImplemented($"Reader long polling will be implemented in a later phase. Configured timeout: {options.Value.PollTimeout}.");
@@ -72,6 +103,21 @@ public static class FeedEndpoints
     private static IResult BadRequest(string title, string detail)
     {
         return Results.Problem(title: title, detail: detail, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    private static FeedAccessResult GetFeedAccess(HttpRequest request, FeedStore feedStore, Guid feedId)
+    {
+        if (!BasicAuthCredential.TryRead(request, out var credential, out var problem))
+        {
+            return FeedAccessResult.Failure(StatusCodes.Status401Unauthorized, "Invalid authorization", problem);
+        }
+
+        return feedStore.GetOrCreate(feedId, credential);
+    }
+
+    private static IResult AccessFailure(FeedAccessResult access)
+    {
+        return Results.Problem(title: access.Title, detail: access.Detail, statusCode: access.StatusCode);
     }
 
     private static IResult NotImplemented(string detail)
