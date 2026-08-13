@@ -1,34 +1,47 @@
 
-namespace FeedServer
+namespace FeedServer;
+
+public class Program
 {
-    public class Program
+    public static void Main(string[] args)
     {
-        public static void Main(string[] args)
+        var builder = WebApplication.CreateBuilder(args);
+        var initialOptions = builder.Configuration
+            .GetSection(FeedServerOptions.SectionName)
+            .Get<FeedServerOptions>() ?? new FeedServerOptions();
+
+        builder.Services.AddOpenApi();
+        builder.Services
+            .AddOptions<FeedServerOptions>()
+            .Bind(builder.Configuration.GetSection(FeedServerOptions.SectionName))
+            .Validate(FeedServerOptions.IsValid, FeedServerOptions.ValidationFailureMessage)
+            .ValidateOnStart();
+
+        builder.WebHost.ConfigureKestrel(options =>
         {
-            var builder = WebApplication.CreateBuilder(args);
+            options.Limits.MaxRequestBodySize = initialOptions.MaxMessageSizeBytes;
+        });
 
-            // Add services to the container.
-
-            builder.Services.AddControllers();
-            // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-            builder.Services.AddOpenApi();
-
-            var app = builder.Build();
-
-            // Configure the HTTP request pipeline.
-            if (app.Environment.IsDevelopment())
-            {
-                app.MapOpenApi();
-            }
-
-            app.UseHttpsRedirection();
-
-            app.UseAuthorization();
-
-
-            app.MapControllers();
-
-            app.Run();
+        if (!HasConfiguredUrls(builder.Configuration))
+        {
+            builder.WebHost.UseUrls($"http://0.0.0.0:{initialOptions.Port}");
         }
+
+        var app = builder.Build();
+
+        if (app.Environment.IsDevelopment())
+        {
+            app.MapOpenApi();
+        }
+
+        FeedEndpoints.Map(app);
+
+        app.Run();
+    }
+
+    private static bool HasConfiguredUrls(IConfiguration configuration)
+    {
+        return !string.IsNullOrWhiteSpace(configuration["urls"])
+            || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS"));
     }
 }

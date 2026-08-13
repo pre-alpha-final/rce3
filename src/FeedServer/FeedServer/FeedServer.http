@@ -1,6 +1,25 @@
 @FeedServer_HostAddress = http://localhost:5137
+@FeedGuid = 4cb82df9-f198-40d8-8f11-fc59365e28a2
+@ReaderGuid = 0576e9fc-75d5-4620-9d72-a7ff33d859de
 
-GET {{FeedServer_HostAddress}}/weatherforecast/
-Accept: application/json
+GET {{FeedServer_HostAddress}}/{{FeedGuid}}
+Accept: text/plain
+
+###
+
+POST {{FeedServer_HostAddress}}/{{FeedGuid}}
+Content-Type: text/plain
+
+hello feed
+
+###
+
+GET {{FeedServer_HostAddress}}/{{FeedGuid}}/{{ReaderGuid}}
+Accept: text/plain
+
+###
+
+GET {{FeedServer_HostAddress}}/not-a-guid
+Accept: application/problem+json
 
 ###
