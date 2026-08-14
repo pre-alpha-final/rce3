@@ -92,6 +92,44 @@ public class FeedReaderStateTests
         Assert.False(feed.TryTouch(cleanupNow));
     }
 
+    [Fact]
+    public async Task Publish_ConcurrentPostsFanOutEveryMessageToEveryReader()
+    {
+        const int readerCount = 20;
+        const int messageCount = 100;
+
+        var feed = new FeedState(
+            Guid.NewGuid(),
+            FeedAccessMode.Open,
+            protectedKeyHash: null,
+            DateTimeOffset.Parse("2026-08-14T00:00:00Z"),
+            maxQueuedMessagesPerReader: messageCount);
+        var readers = Enumerable
+            .Range(0, readerCount)
+            .Select(_ => feed.EnsureReader(Guid.NewGuid()))
+            .ToArray();
+        var messages = Enumerable
+            .Range(0, messageCount)
+            .Select(index => Message($"message-{index}"))
+            .ToArray();
+
+        await Task.WhenAll(messages.Select(message => Task.Run(() => feed.Publish(message))));
+
+        foreach (var reader in readers)
+        {
+            var receivedBodies = new HashSet<string>();
+            for (var i = 0; i < messageCount; i++)
+            {
+                var received = await reader.ReadAsync(TimeSpan.FromSeconds(1), CancellationToken.None);
+
+                Assert.NotNull(received);
+                receivedBodies.Add(System.Text.Encoding.UTF8.GetString(received.Body));
+            }
+
+            Assert.Equal(messageCount, receivedBodies.Count);
+        }
+    }
+
     private static FeedMessage Message(string body)
     {
         return new FeedMessage(System.Text.Encoding.UTF8.GetBytes(body), "text/plain");

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 namespace FeedServer;
 
@@ -23,6 +24,10 @@ public class Program
         builder.WebHost.ConfigureKestrel(options =>
         {
             options.Limits.MaxRequestBodySize = initialOptions.MaxMessageSizeBytes;
+            options.Limits.RequestHeadersTimeout = initialOptions.RequestHeadersTimeout;
+            options.Limits.MinRequestBodyDataRate = new MinDataRate(
+                initialOptions.MinRequestBodyDataRateBytesPerSecond,
+                initialOptions.MinRequestBodyDataRateGracePeriod);
         });
 
         if (!HasConfiguredUrls(builder.Configuration))

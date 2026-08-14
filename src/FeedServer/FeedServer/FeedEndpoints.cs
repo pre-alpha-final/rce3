@@ -1,3 +1,4 @@
+using System.Buffers;
 using Microsoft.Extensions.Options;
 
 namespace FeedServer;
@@ -78,10 +79,7 @@ public static class FeedEndpoints
                 feedId,
                 request.ContentLength,
                 options.Value.MaxMessageSizeBytes);
-            return Results.Problem(
-                title: "Payload too large",
-                detail: $"Message bodies may not exceed {options.Value.MaxMessageSizeBytes} bytes.",
-                statusCode: StatusCodes.Status413PayloadTooLarge);
+            return PayloadTooLarge(options.Value);
         }
 
         var access = GetFeedAccess(request, feedStore, feedId, logger);
@@ -90,7 +88,23 @@ public static class FeedEndpoints
             return AccessFailure(access);
         }
 
-        var body = await ReadBodyAsync(request, request.HttpContext.RequestAborted);
+        byte[] body;
+        try
+        {
+            body = await FeedRequestBodyReader.ReadAsync(
+                request.Body,
+                options.Value.MaxMessageSizeBytes,
+                request.HttpContext.RequestAborted);
+        }
+        catch (MessageTooLargeException)
+        {
+            logger.LogWarning(
+                "Rejected streaming payload for feed {FeedId}: body exceeds {MaxMessageSizeBytes} bytes.",
+                feedId,
+                options.Value.MaxMessageSizeBytes);
+            return PayloadTooLarge(options.Value);
+        }
+
         var readerCount = access.Feed!.Publish(new FeedMessage(body, request.ContentType));
         logger.LogInformation(
             "Posted {MessageSize} byte message to feed {FeedId}; distributed to {ReaderCount} reader(s).",
@@ -194,10 +208,49 @@ public static class FeedEndpoints
             statusCode: StatusCodes.Status500InternalServerError);
     }
 
-    private static async Task<byte[]> ReadBodyAsync(HttpRequest request, CancellationToken cancellationToken)
+    private static IResult PayloadTooLarge(FeedServerOptions options)
+    {
+        return Results.Problem(
+            title: "Payload too large",
+            detail: $"Message bodies may not exceed {options.MaxMessageSizeBytes} bytes.",
+            statusCode: StatusCodes.Status413PayloadTooLarge);
+    }
+}
+
+public static class FeedRequestBodyReader
+{
+    private const int BufferSize = 81920;
+
+    public static async Task<byte[]> ReadAsync(Stream source, long maxBytes, CancellationToken cancellationToken)
     {
         using var body = new MemoryStream();
-        await request.Body.CopyToAsync(body, cancellationToken);
-        return body.ToArray();
+        var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+
+        try
+        {
+            while (true)
+            {
+                var read = await source.ReadAsync(buffer, cancellationToken);
+                if (read == 0)
+                {
+                    return body.ToArray();
+                }
+
+                if (body.Length + read > maxBytes)
+                {
+                    throw new MessageTooLargeException();
+                }
+
+                body.Write(buffer, 0, read);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
+}
+
+public sealed class MessageTooLargeException : Exception
+{
 }
