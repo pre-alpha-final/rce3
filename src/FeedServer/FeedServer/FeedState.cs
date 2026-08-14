@@ -6,14 +6,21 @@ namespace FeedServer;
 public sealed class FeedState
 {
     private readonly ConcurrentDictionary<Guid, FeedReaderState> readers = new();
+    private readonly int maxQueuedMessagesPerReader;
 
-    public FeedState(Guid id, FeedAccessMode mode, byte[]? protectedKeyHash, DateTimeOffset createdAt)
+    public FeedState(
+        Guid id,
+        FeedAccessMode mode,
+        byte[]? protectedKeyHash,
+        DateTimeOffset createdAt,
+        int maxQueuedMessagesPerReader)
     {
         Id = id;
         Mode = mode;
         ProtectedKeyHash = protectedKeyHash;
         CreatedAt = createdAt;
         LastActivityAt = createdAt;
+        this.maxQueuedMessagesPerReader = maxQueuedMessagesPerReader;
     }
 
     public Guid Id { get; }
@@ -30,7 +37,7 @@ public sealed class FeedState
 
     public FeedReaderState EnsureReader(Guid readerId)
     {
-        return readers.GetOrAdd(readerId, _ => new FeedReaderState());
+        return readers.GetOrAdd(readerId, _ => new FeedReaderState(maxQueuedMessagesPerReader));
     }
 
     public int Publish(FeedMessage message)
@@ -53,16 +60,33 @@ public sealed record FeedMessage(byte[] Body, string? ContentType);
 
 public sealed class FeedReaderState
 {
-    private readonly Channel<FeedMessage> messages = Channel.CreateUnbounded<FeedMessage>(
-        new UnboundedChannelOptions
-        {
-            SingleReader = false,
-            SingleWriter = false
-        });
+    private readonly Channel<FeedMessage> messages;
+    private int unusable;
+
+    public FeedReaderState(int maxQueuedMessages)
+    {
+        messages = Channel.CreateBounded<FeedMessage>(
+            new BoundedChannelOptions(maxQueuedMessages)
+            {
+                FullMode = BoundedChannelFullMode.Wait,
+                SingleReader = false,
+                SingleWriter = false
+            });
+    }
+
+    public bool IsUnusable => Volatile.Read(ref unusable) == 1;
 
     public void Enqueue(FeedMessage message)
     {
-        messages.Writer.TryWrite(message);
+        if (IsUnusable)
+        {
+            return;
+        }
+
+        if (!messages.Writer.TryWrite(message))
+        {
+            MarkUnusable();
+        }
     }
 
     public async ValueTask<FeedMessage?> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken)
@@ -74,9 +98,21 @@ public sealed class FeedReaderState
         {
             return await messages.Reader.ReadAsync(linkedCts.Token);
         }
+        catch (ChannelClosedException)
+        {
+            return null;
+        }
         catch (OperationCanceledException)
         {
             return null;
+        }
+    }
+
+    private void MarkUnusable()
+    {
+        if (Interlocked.Exchange(ref unusable, 1) == 0)
+        {
+            messages.Writer.TryComplete();
         }
     }
 }

@@ -24,6 +24,7 @@ public static class FeedHelpText
             $"       Publish the raw request body to all readers. Max body: {options.MaxMessageSizeBytes} bytes.",
             "  GET  /{FeedId}/{ReaderId}",
             $"       Long-poll one message for this reader, or return empty after {options.PollTimeout}.",
+            $"       Reader queues become unusable after exceeding {options.MaxQueuedMessagesPerReader} queued messages.",
             string.Empty,
             "IDs:",
             "  FeedId and ReaderId must be valid UUIDs.",

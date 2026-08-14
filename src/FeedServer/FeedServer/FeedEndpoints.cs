@@ -107,7 +107,17 @@ public static class FeedEndpoints
         }
 
         var reader = access.Feed!.EnsureReader(readerId);
+        if (reader.IsUnusable)
+        {
+            return UnusableReader(options.Value);
+        }
+
         var message = await reader.ReadAsync(options.Value.PollTimeout, request.HttpContext.RequestAborted);
+        if (reader.IsUnusable)
+        {
+            return UnusableReader(options.Value);
+        }
+
         if (message is null)
         {
             return Results.NoContent();
@@ -141,6 +151,14 @@ public static class FeedEndpoints
     private static IResult AccessFailure(FeedAccessResult access)
     {
         return Results.Problem(title: access.Title, detail: access.Detail, statusCode: access.StatusCode);
+    }
+
+    private static IResult UnusableReader(FeedServerOptions options)
+    {
+        return Results.Problem(
+            title: "Reader queue unusable",
+            detail: $"This reader queue exceeded the configured limit of {options.MaxQueuedMessagesPerReader} queued messages and will remain unusable until the feed is deleted.",
+            statusCode: StatusCodes.Status500InternalServerError);
     }
 
     private static async Task<byte[]> ReadBodyAsync(HttpRequest request, CancellationToken cancellationToken)

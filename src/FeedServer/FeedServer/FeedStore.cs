@@ -1,15 +1,18 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Options;
 
 namespace FeedServer;
 
 public sealed class FeedStore
 {
     private readonly ConcurrentDictionary<Guid, FeedState> feeds = new();
+    private readonly int maxQueuedMessagesPerReader;
     private readonly TimeProvider timeProvider;
 
-    public FeedStore(TimeProvider timeProvider)
+    public FeedStore(TimeProvider timeProvider, IOptions<FeedServerOptions> options)
     {
         this.timeProvider = timeProvider;
+        maxQueuedMessagesPerReader = options.Value.MaxQueuedMessagesPerReader;
     }
 
     public FeedAccessResult GetOrCreate(Guid feedId, FeedAuthorizationKey? key)
@@ -20,14 +23,19 @@ public sealed class FeedStore
         return TryAuthorizeAndTouch(feed, key, now);
     }
 
-    private static FeedState CreateFeed(Guid feedId, FeedAuthorizationKey? key, DateTimeOffset now)
+    private FeedState CreateFeed(Guid feedId, FeedAuthorizationKey? key, DateTimeOffset now)
     {
         if (key is null)
         {
-            return new FeedState(feedId, FeedAccessMode.Open, null, now);
+            return new FeedState(feedId, FeedAccessMode.Open, null, now, maxQueuedMessagesPerReader);
         }
 
-        return new FeedState(feedId, FeedAccessMode.Protected, (byte[])key.Hash.Clone(), now);
+        return new FeedState(
+            feedId,
+            FeedAccessMode.Protected,
+            (byte[])key.Hash.Clone(),
+            now,
+            maxQueuedMessagesPerReader);
     }
 
     private static FeedAccessResult TryAuthorizeAndTouch(
