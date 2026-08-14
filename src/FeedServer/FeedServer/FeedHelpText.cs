@@ -6,31 +6,34 @@ public static class FeedHelpText
     {
         var feedId = feed?.Id ?? Guid.Empty;
         var mode = feed?.Mode.ToString().ToLowerInvariant() ?? "unknown";
-        var lastActivity = feed?.LastActivityAt.ToString("O") ?? "unknown";
-        var readerCount = feed?.ReaderCount.ToString() ?? "unknown";
 
         return string.Join(
             Environment.NewLine,
-            $"Feed {feedId}",
+            $"FeedId: {feedId}",
             $"Mode: {mode}",
-            $"Readers: {readerCount}",
-            $"Last activity: {lastActivity}",
             string.Empty,
-            "Endpoints:",
-            $"  GET  /{feedId}",
-            $"  POST /{feedId}",
-            $"  GET  /{feedId}/{{readerGuid}}",
+            "Idea:",
+            "  An ephemeral fan-out message channel. POST a raw request body to the feed.",
+            "  Each reader long-polls its own queue and receives a copy of each message.",
+            "  There is no schema or content type requirement; clients define message rules.",
+            string.Empty,
+            "Client contract:",
+            "  GET  /{FeedId}",
+            "       Create or touch the feed and return this help.",
+            "  POST /{FeedId}",
+            $"       Publish the raw request body to all readers. Max body: {options.MaxMessageSizeBytes} bytes.",
+            "  GET  /{FeedId}/{ReaderId}",
+            $"       Long-poll one message for this reader, or return empty after {options.PollTimeout}.",
+            string.Empty,
+            "IDs:",
+            "  FeedId and ReaderId must be valid UUIDs.",
+            "  ReaderId must be globally unique across feeds.",
             string.Empty,
             "Auth:",
-            "  Missing feeds are created by the first valid request.",
-            "  Requests without Authorization create open feeds.",
-            "  Requests with Authorization: <key> create protected feeds.",
-            "  Open feeds reject Authorization keys.",
-            "  Protected feeds require the same Authorization key on every request.",
+            "  The first valid request creates the feed mode.",
+            "  No Authorization header creates an open feed; open feeds reject Authorization.",
+            "  Authorization: <key> creates a protected feed; send the same key every time.",
             string.Empty,
-            "IDs must be valid C# Guid values.",
-            $"Poll timeout: {options.PollTimeout}",
-            $"Feed TTL: {options.FeedTtl}",
-            $"Max message size: {options.MaxMessageSizeBytes} bytes");
+            FormattableString.Invariant($"Lifetime: expires after {options.FeedTtl.TotalHours:0.###} hours without valid GET/POST activity."));
     }
 }
