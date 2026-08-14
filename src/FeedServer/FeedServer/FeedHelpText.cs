@@ -27,7 +27,6 @@ public static class FeedHelpText
             string.Empty,
             "IDs:",
             "  FeedId and ReaderId must be valid UUIDs.",
-            "  ReaderId must be globally unique across feeds.",
             string.Empty,
             "Auth:",
             "  The first valid request creates the feed mode.",

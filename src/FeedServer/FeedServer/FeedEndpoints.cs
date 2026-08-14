@@ -91,7 +91,7 @@ public static class FeedEndpoints
         FeedStore feedStore,
         IOptions<FeedServerOptions> options)
     {
-        var route = FeedRouteParser.TryParseReader(feedGuid, readerGuid, out var feedId, out _, out var problem);
+        var route = FeedRouteParser.TryParseReader(feedGuid, readerGuid, out var feedId, out var readerId, out var problem);
         if (!route)
         {
             return BadRequest("Bad reader route", problem);
@@ -102,6 +102,8 @@ public static class FeedEndpoints
         {
             return AccessFailure(access);
         }
+
+        access.Feed!.EnsureReader(readerId);
 
         return NotImplemented($"Reader long polling will be implemented in a later phase. Configured timeout: {options.Value.PollTimeout}.");
     }

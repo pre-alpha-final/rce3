@@ -287,7 +287,6 @@
         <li>Feed mode selection at creation: open or Authorization-key protected.</li>
         <li>Pass-through message bodies with minimal server interpretation.</li>
         <li>Multiple readers per feed, each with its own queue.</li>
-        <li>System-wide reader GUID uniqueness.</li>
         <li>Feed expiration after 24 hours without GET or POST activity.</li>
         <li>Reader cleanup when the parent feed expires.</li>
         <li>Bare-bones browser-readable help at <code>GET /feed-guid</code>.</li>
@@ -330,7 +329,7 @@
           <tr>
             <td data-label="Endpoint"><code>GET /{feedGuid}/{readerGuid}</code></td>
             <td data-label="Purpose">Create or touch a reader queue and long-poll for the next message.</td>
-            <td data-label="Request">Reader GUID must be unique system-wide. Auth must match the feed mode exactly.</td>
+            <td data-label="Request">Auth must match the feed mode exactly.</td>
             <td data-label="Response">Return one queued message at a time using the original message <code>Content-Type</code>, or return an empty timeout response after 30 seconds.</td>
           </tr>
         </tbody>
@@ -343,7 +342,6 @@
         <li><code>400 Bad Request</code> for malformed feed GUIDs, malformed reader GUIDs, or unusable request paths.</li>
         <li><code>401 Unauthorized</code> when a protected feed is accessed without the correct Authorization key.</li>
         <li><code>403 Forbidden</code> when an open feed is accessed with an Authorization key, because protected access to an open feed is explicitly invalid.</li>
-        <li><code>409 Conflict</code> when a reader GUID is already bound to another feed.</li>
         <li><code>413 Payload Too Large</code> when a message exceeds the configured maximum body size.</li>
         <li><code>500 Internal Server Error</code> when a reader queue has exceeded its configured size limit and has become unusable.</li>
       </ul>
@@ -365,8 +363,7 @@
 
       <h3>Reader Lifecycle</h3>
       <ol>
-        <li><code>GET /{feedGuid}/{readerGuid}</code> creates a reader queue if the reader GUID is unused.</li>
-        <li>A reader GUID is globally unique across the whole service, not only within one feed.</li>
+        <li><code>GET /{feedGuid}/{readerGuid}</code> creates a reader queue.</li>
         <li>Each message posted to a feed is appended to every active reader queue for that feed.</li>
         <li>Readers receive their own posted messages because the system has no sender identity.</li>
         <li>Readers are deleted when their parent feed is deleted.</li>
@@ -397,8 +394,7 @@
         <div class="card">
           <strong>Phase 3: Reader Queues</strong>
           <ul>
-            <li>Create globally unique reader queues on first reader request.</li>
-            <li>Reject reader GUID collisions across feeds.</li>
+            <li>Create reader queues on first reader request.</li>
             <li>Queue messages independently for each reader.</li>
             <li>Define queue backpressure limits so inactive readers cannot exhaust memory.</li>
             <li>Mark a reader unusable when its queue exceeds the configured limit; future reads return <code>500</code> with an appropriate description until the feed is deleted.</li>
@@ -441,7 +437,7 @@
         <li>There is no public data model, message model, envelope, type registry, or required format.</li>
         <li>The service keeps only the private in-memory state needed to route messages, enforce feed mode, hold reader queues, and expire inactive feeds.</li>
         <li>Feed mode is either open or protected and cannot change after creation.</li>
-        <li>Reader GUIDs must be valid C# <code>Guid</code> values and unique across all feeds.</li>
+        <li>Feed and reader GUIDs must be valid C# <code>Guid</code> values.</li>
         <li>The server preserves the posted body and returns the original <code>Content-Type</code> when the message is read.</li>
       </ul>
     </section>
@@ -453,7 +449,6 @@
         <li><span class="status must">Auth tests:</span> cover open feed creation, protected feed creation, wrong key, missing key, and protected request sent to an open feed.</li>
         <li><span class="status must">Queue tests:</span> prove that each reader receives every feed message independently, including messages posted by the same client, one message per read response.</li>
         <li><span class="status must">Content tests:</span> verify that the original <code>Content-Type</code> is preserved when a message is returned to a reader.</li>
-        <li><span class="status must">Collision tests:</span> reject a reader GUID that already exists on another feed.</li>
         <li><span class="status must">Expiration tests:</span> delete feeds after 24 hours of inactivity and remove their readers.</li>
         <li><span class="status must">Overflow tests:</span> verify that a reader whose queue exceeds the configured size limit becomes unusable and returns <code>500</code> with a useful description.</li>
         <li><span class="status watch">Load tests:</span> simulate many long-poll readers and bursty posts to validate memory and concurrency limits.</li>

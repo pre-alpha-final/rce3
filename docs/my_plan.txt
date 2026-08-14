@@ -23,7 +23,6 @@ A reader is an instance of a queue of specific feed. So multiple readers can rea
 1. When request:
 GET /feed-guid/reader-guid
 is made, a messge queue with reader-guid is created.
-2. Reader guids need to be unique system wide, not only per feed.
-3. When a message comes into the feed, it is distributed to all readers subscribed to the feed.
-4. Since there is no identity of senders and receivers, you will receive your own messages. This is fine.
-5. Readers are deleted when the feed is deleted.
+2. When a message comes into the feed, it is distributed to all readers subscribed to the feed.
+3. Since there is no identity of senders and receivers, you will receive your own messages. This is fine.
+4. Readers are deleted when the feed is deleted.

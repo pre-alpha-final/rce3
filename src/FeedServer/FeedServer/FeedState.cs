@@ -27,6 +27,11 @@ public sealed class FeedState
 
     public int ReaderCount => readers.Count;
 
+    public void EnsureReader(Guid readerId)
+    {
+        readers.TryAdd(readerId, 0);
+    }
+
     public void Touch(DateTimeOffset activityAt)
     {
         LastActivityAt = activityAt;
