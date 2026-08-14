@@ -17,10 +17,23 @@ public static class FeedEndpoints
 
     public static void Map(WebApplication app)
     {
+        app.MapGet("/", CreateFeed);
         app.MapGet("/{feedGuid}", GetFeed);
         app.MapPost("/{feedGuid}", PostFeed);
         app.MapGet("/{feedGuid}/{readerGuid}", GetReader);
         app.MapMethods("/{*path}", SupportedMethods, BadPath);
+    }
+
+    private static IResult CreateFeed(HttpRequest request, FeedStore feedStore)
+    {
+        var feedId = Guid.NewGuid();
+        var access = GetFeedAccess(request, feedStore, feedId);
+        if (!access.Succeeded)
+        {
+            return AccessFailure(access);
+        }
+
+        return Results.Redirect($"/{feedId:D}");
     }
 
     private static IResult GetFeed(
