@@ -35,17 +35,16 @@ public sealed class FeedStore
         while (true)
         {
             var feed = feeds.GetOrAdd(feedId, _ => CreateFeed(feedId, key, now));
-            if (feed.IsExpired(now, feedTtl))
+            if (TryExpire(feedId, feed, now))
             {
-                if (TryRemove(feedId, feed))
-                {
-                    Expire(feed);
-                }
-
                 continue;
             }
 
-            return TryAuthorizeAndTouch(feed, key, now);
+            var access = TryAuthorizeAndTouch(feed, key, now);
+            if (access is not null)
+            {
+                return access;
+            }
         }
     }
 
@@ -56,14 +55,8 @@ public sealed class FeedStore
 
         foreach (var pair in feeds)
         {
-            if (!pair.Value.IsExpired(now, feedTtl))
+            if (TryExpire(pair.Key, pair.Value, now))
             {
-                continue;
-            }
-
-            if (TryRemove(pair.Key, pair.Value))
-            {
-                Expire(pair.Value);
                 expiredCount++;
             }
         }
@@ -88,7 +81,7 @@ public sealed class FeedStore
             maxQueuedMessagesPerReader);
     }
 
-    private FeedAccessResult TryAuthorizeAndTouch(
+    private FeedAccessResult? TryAuthorizeAndTouch(
         FeedState feed,
         FeedAuthorizationKey? key,
         DateTimeOffset now)
@@ -123,8 +116,28 @@ public sealed class FeedStore
             }
         }
 
-        feed.Touch(now);
+        if (!feed.TryTouch(now))
+        {
+            return null;
+        }
+
         return FeedAccessResult.Success(feed);
+    }
+
+    private bool TryExpire(Guid feedId, FeedState feed, DateTimeOffset now)
+    {
+        if (!feed.TryBeginExpiration(now, feedTtl))
+        {
+            return false;
+        }
+
+        if (!TryRemove(feedId, feed))
+        {
+            return false;
+        }
+
+        Expire(feed);
+        return true;
     }
 
     private bool TryRemove(Guid feedId, FeedState feed)

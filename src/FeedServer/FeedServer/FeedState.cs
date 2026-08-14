@@ -8,6 +8,7 @@ public sealed class FeedState
     private readonly ConcurrentDictionary<Guid, FeedReaderState> readers = new();
     private readonly Lock activityLock = new();
     private readonly int maxQueuedMessagesPerReader;
+    private bool isExpiring;
     private DateTimeOffset lastActivityAt;
 
     public FeedState(
@@ -61,17 +62,42 @@ public sealed class FeedState
         return readers.Count;
     }
 
-    public void Touch(DateTimeOffset activityAt)
+    public bool TryTouch(DateTimeOffset activityAt)
     {
         lock (activityLock)
         {
+            if (isExpiring)
+            {
+                return false;
+            }
+
             lastActivityAt = activityAt;
+            return true;
         }
     }
 
     public bool IsExpired(DateTimeOffset now, TimeSpan ttl)
     {
         return now - LastActivityAt >= ttl;
+    }
+
+    public bool TryBeginExpiration(DateTimeOffset now, TimeSpan ttl)
+    {
+        lock (activityLock)
+        {
+            if (isExpiring)
+            {
+                return true;
+            }
+
+            if (now - lastActivityAt < ttl)
+            {
+                return false;
+            }
+
+            isExpiring = true;
+            return true;
+        }
     }
 
     public void CompleteReaders()

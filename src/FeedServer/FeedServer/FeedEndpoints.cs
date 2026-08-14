@@ -24,10 +24,10 @@ public static class FeedEndpoints
         app.MapMethods("/{*path}", SupportedMethods, BadPath);
     }
 
-    private static IResult CreateFeed(HttpRequest request, FeedStore feedStore)
+    private static IResult CreateFeed(HttpRequest request, FeedStore feedStore, ILogger<Program> logger)
     {
         var feedId = Guid.NewGuid();
-        var access = GetFeedAccess(request, feedStore, feedId);
+        var access = GetFeedAccess(request, feedStore, feedId, logger);
         if (!access.Succeeded)
         {
             return AccessFailure(access);
@@ -40,14 +40,16 @@ public static class FeedEndpoints
         string feedGuid,
         HttpRequest request,
         FeedStore feedStore,
-        IOptions<FeedServerOptions> options)
+        IOptions<FeedServerOptions> options,
+        ILogger<Program> logger)
     {
         if (!FeedRouteParser.TryParseFeed(feedGuid, out var feedId, out var problem))
         {
+            logger.LogWarning("Rejected malformed feed route {FeedGuid}: {Problem}", feedGuid, problem);
             return BadRequest("Bad feed route", problem);
         }
 
-        var access = GetFeedAccess(request, feedStore, feedId);
+        var access = GetFeedAccess(request, feedStore, feedId, logger);
         if (!access.Succeeded)
         {
             return AccessFailure(access);
@@ -65,18 +67,24 @@ public static class FeedEndpoints
     {
         if (!FeedRouteParser.TryParseFeed(feedGuid, out var feedId, out var problem))
         {
+            logger.LogWarning("Rejected malformed feed route {FeedGuid}: {Problem}", feedGuid, problem);
             return BadRequest("Bad feed route", problem);
         }
 
         if (request.ContentLength > options.Value.MaxMessageSizeBytes)
         {
+            logger.LogWarning(
+                "Rejected payload for feed {FeedId}: {ContentLength} bytes exceeds {MaxMessageSizeBytes} bytes.",
+                feedId,
+                request.ContentLength,
+                options.Value.MaxMessageSizeBytes);
             return Results.Problem(
                 title: "Payload too large",
                 detail: $"Message bodies may not exceed {options.Value.MaxMessageSizeBytes} bytes.",
                 statusCode: StatusCodes.Status413PayloadTooLarge);
         }
 
-        var access = GetFeedAccess(request, feedStore, feedId);
+        var access = GetFeedAccess(request, feedStore, feedId, logger);
         if (!access.Succeeded)
         {
             return AccessFailure(access);
@@ -105,10 +113,15 @@ public static class FeedEndpoints
         var route = FeedRouteParser.TryParseReader(feedGuid, readerGuid, out var feedId, out var readerId, out var problem);
         if (!route)
         {
+            logger.LogWarning(
+                "Rejected malformed reader route {FeedGuid}/{ReaderGuid}: {Problem}",
+                feedGuid,
+                readerGuid,
+                problem);
             return BadRequest("Bad reader route", problem);
         }
 
-        var access = GetFeedAccess(request, feedStore, feedId);
+        var access = GetFeedAccess(request, feedStore, feedId, logger);
         if (!access.Succeeded)
         {
             return AccessFailure(access);
@@ -117,6 +130,7 @@ public static class FeedEndpoints
         var reader = access.Feed!.EnsureReader(readerId);
         if (reader.IsUnusable)
         {
+            logger.LogWarning("Rejected unusable reader {ReaderId} for feed {FeedId}.", readerId, feedId);
             return UnusableReader(options.Value);
         }
 
@@ -126,6 +140,7 @@ public static class FeedEndpoints
         var message = await reader.ReadAsync(options.Value.PollTimeout, pollCts.Token);
         if (reader.IsUnusable)
         {
+            logger.LogWarning("Rejected unusable reader {ReaderId} for feed {FeedId} after poll completion.", readerId, feedId);
             return UnusableReader(options.Value);
         }
 
@@ -138,8 +153,9 @@ public static class FeedEndpoints
         return Results.Bytes(message.Body, message.ContentType ?? "application/octet-stream");
     }
 
-    private static IResult BadPath(HttpRequest request)
+    private static IResult BadPath(HttpRequest request, ILogger<Program> logger)
     {
+        logger.LogWarning("Rejected unsupported feed path {Path}.", request.Path);
         return BadRequest(
             "Bad feed path",
             $"'{request.Path}' does not match GET /{{feedGuid}}, POST /{{feedGuid}}, or GET /{{feedGuid}}/{{readerGuid}}.");
@@ -150,10 +166,15 @@ public static class FeedEndpoints
         return Results.Problem(title: title, detail: detail, statusCode: StatusCodes.Status400BadRequest);
     }
 
-    private static FeedAccessResult GetFeedAccess(HttpRequest request, FeedStore feedStore, Guid feedId)
+    private static FeedAccessResult GetFeedAccess(
+        HttpRequest request,
+        FeedStore feedStore,
+        Guid feedId,
+        ILogger<Program> logger)
     {
         if (!FeedAuthorizationKey.TryRead(request, out var key, out var problem))
         {
+            logger.LogWarning("Rejected invalid authorization for feed {FeedId}: {Problem}", feedId, problem);
             return FeedAccessResult.Failure(StatusCodes.Status401Unauthorized, "Invalid authorization", problem);
         }
 

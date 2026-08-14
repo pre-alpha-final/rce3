@@ -66,6 +66,32 @@ public class FeedReaderStateTests
         Assert.Same(message, await reader.ReadAsync(TimeSpan.FromSeconds(30), CancellationToken.None));
     }
 
+    [Fact]
+    public void TryBeginExpiration_ReturnsFalseWhenFeedWasRecentlyTouched()
+    {
+        var createdAt = DateTimeOffset.Parse("2026-08-14T00:00:00Z");
+        var ttl = TimeSpan.FromHours(1);
+        var feed = new FeedState(Guid.NewGuid(), FeedAccessMode.Open, null, createdAt, maxQueuedMessagesPerReader: 10);
+        var cleanupNow = createdAt + ttl + TimeSpan.FromTicks(1);
+
+        Assert.True(feed.TryTouch(cleanupNow));
+
+        Assert.False(feed.TryBeginExpiration(cleanupNow, ttl));
+    }
+
+    [Fact]
+    public void TryTouch_ReturnsFalseAfterExpirationBegins()
+    {
+        var createdAt = DateTimeOffset.Parse("2026-08-14T00:00:00Z");
+        var ttl = TimeSpan.FromHours(1);
+        var feed = new FeedState(Guid.NewGuid(), FeedAccessMode.Open, null, createdAt, maxQueuedMessagesPerReader: 10);
+        var cleanupNow = createdAt + ttl + TimeSpan.FromTicks(1);
+
+        Assert.True(feed.TryBeginExpiration(cleanupNow, ttl));
+
+        Assert.False(feed.TryTouch(cleanupNow));
+    }
+
     private static FeedMessage Message(string body)
     {
         return new FeedMessage(System.Text.Encoding.UTF8.GetBytes(body), "text/plain");
