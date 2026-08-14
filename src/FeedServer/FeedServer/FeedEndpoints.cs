@@ -107,12 +107,12 @@ public static class FeedEndpoints
 
     private static FeedAccessResult GetFeedAccess(HttpRequest request, FeedStore feedStore, Guid feedId)
     {
-        if (!BasicAuthCredential.TryRead(request, out var credential, out var problem))
+        if (!FeedAuthorizationKey.TryRead(request, out var key, out var problem))
         {
             return FeedAccessResult.Failure(StatusCodes.Status401Unauthorized, "Invalid authorization", problem);
         }
 
-        return feedStore.GetOrCreate(feedId, credential);
+        return feedStore.GetOrCreate(feedId, key);
     }
 
     private static IResult AccessFailure(FeedAccessResult access)

@@ -25,13 +25,13 @@ Accept: application/problem+json
 ###
 
 GET {{FeedServer_HostAddress}}/{{FeedGuid}}
-Authorization: Basic dXNlcjpwYXNz
+Authorization: test-feed-key
 Accept: application/problem+json
 
 ###
 
 GET {{FeedServer_HostAddress}}/56d248ae-8723-4e33-b56c-02e290f8bf84
-Authorization: Basic dXNlcjpwYXNz
+Authorization: test-feed-key
 Accept: text/plain
 
 ###

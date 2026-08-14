@@ -12,8 +12,8 @@ GET /feed-guid/reader-guid - long pooling to get the feed. returns after 30 seco
 Feed lifecycle:
 1. A request is made for a feed. If it doesn't exist it is created.
 2. At time of creation the feed is created as either password protected or not.
-- if first request has a key supplied as basic-auth in request header, that is the feed key
-- if first request doesn't have a basic-auth header the feed is not password protected - open
+- if first request has a key supplied in the Authorization request header, that is the feed key
+- if first request doesn't have an Authorization header the feed is not password protected - open
 - once a mode is chosed it cannot be changed, and only works with requests that correctly have or don't have the key. i.e. a protected request to an open feed is still wrong.
 3. Messages coming into the feed are distributed to all readers of that feed.
 4. Feed is deleted after 24h witout any GET/POST activity.

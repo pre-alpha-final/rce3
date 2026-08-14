@@ -284,7 +284,7 @@
       <ul>
         <li>HTTP endpoints for feed help, posting messages, and long-polling reader queues.</li>
         <li>Implicit feed creation on first valid request.</li>
-        <li>Feed mode selection at creation: open or Basic-auth protected.</li>
+        <li>Feed mode selection at creation: open or Authorization-key protected.</li>
         <li>Pass-through message bodies with minimal server interpretation.</li>
         <li>Multiple readers per feed, each with its own queue.</li>
         <li>System-wide reader GUID uniqueness.</li>
@@ -318,7 +318,7 @@
           <tr>
             <td data-label="Endpoint"><code>GET /{feedGuid}</code></td>
             <td data-label="Purpose">Create or touch a feed, then show minimal integration help.</td>
-            <td data-label="Request">Optional Basic auth only if creating or accessing a protected feed.</td>
+            <td data-label="Request">Optional Authorization key only if creating or accessing a protected feed.</td>
             <td data-label="Response">Plain text or simple HTML help with the three endpoint patterns and auth rule.</td>
           </tr>
           <tr>
@@ -341,8 +341,8 @@
         <li><code>200 OK</code> for help, successful post acceptance, and successful long-poll message delivery.</li>
         <li><code>204 No Content</code> when a long-poll request times out after 30 seconds with no messages.</li>
         <li><code>400 Bad Request</code> for malformed feed GUIDs, malformed reader GUIDs, or unusable request paths.</li>
-        <li><code>401 Unauthorized</code> when a protected feed is accessed without the correct Basic auth credentials.</li>
-        <li><code>403 Forbidden</code> when an open feed is accessed with Basic auth, because protected access to an open feed is explicitly invalid.</li>
+        <li><code>401 Unauthorized</code> when a protected feed is accessed without the correct Authorization key.</li>
+        <li><code>403 Forbidden</code> when an open feed is accessed with an Authorization key, because protected access to an open feed is explicitly invalid.</li>
         <li><code>409 Conflict</code> when a reader GUID is already bound to another feed.</li>
         <li><code>413 Payload Too Large</code> when a message exceeds the configured maximum body size.</li>
         <li><code>500 Internal Server Error</code> when a reader queue has exceeded its configured size limit and has become unusable.</li>
@@ -354,11 +354,11 @@
       <h3>Feed Lifecycle</h3>
       <ol>
         <li>Any valid request for a missing feed creates that feed.</li>
-        <li>If the creation request includes Basic auth, the feed becomes protected and that supplied credential becomes the feed key.</li>
-        <li>If the creation request has no Basic auth header, the feed becomes open.</li>
+        <li>If the creation request includes an Authorization key, the feed becomes protected and that supplied key becomes the feed key.</li>
+        <li>If the creation request has no Authorization header, the feed becomes open.</li>
         <li>The selected mode is permanent for the life of the feed.</li>
-        <li>Protected feeds require matching Basic auth on every request.</li>
-        <li>Open feeds require no Basic auth; requests that include Basic auth are rejected.</li>
+        <li>Protected feeds require a matching Authorization key on every request.</li>
+        <li>Open feeds require no Authorization key; requests that include one are rejected.</li>
         <li>Each valid GET or POST updates the feed activity timestamp.</li>
         <li>A feed is deleted after 24 hours without any valid GET or POST activity.</li>
       </ol>
@@ -466,7 +466,7 @@
       <ul>
         <li>Set a maximum message body size before launch. The project can stay format-free while still protecting the service from unbounded memory use.</li>
         <li>Set a maximum queued messages or queued bytes per reader. When the limit is exceeded, mark that reader unusable and return <code>500</code> with an appropriate description for future reads.</li>
-        <li>Hash stored Basic-auth credentials instead of keeping feed keys in plain text.</li>
+        <li>Hash stored Authorization keys instead of keeping feed keys in plain text.</li>
         <li>Use monotonic or injected clocks in tests so 24-hour expiration is reliable and fast to verify.</li>
         <li>Prefer simple structured logs even if the public API remains unstructured.</li>
         <li>Use memory-only storage for this version. Feeds and readers disappear on process restart.</li>
@@ -486,7 +486,7 @@
         </div>
         <div class="card">
           <strong>Auth Ambiguity</strong>
-          Open feeds reject Basic auth and protected feeds require it. Keep this strict rule visible in help text and tests.
+          Open feeds reject Authorization keys and protected feeds require them. Keep this strict rule visible in help text and tests.
         </div>
         <div class="card">
           <strong>Restart Semantics</strong>

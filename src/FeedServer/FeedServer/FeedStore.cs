@@ -12,53 +12,53 @@ public sealed class FeedStore
         this.timeProvider = timeProvider;
     }
 
-    public FeedAccessResult GetOrCreate(Guid feedId, BasicAuthCredential? credential)
+    public FeedAccessResult GetOrCreate(Guid feedId, FeedAuthorizationKey? key)
     {
         var now = timeProvider.GetUtcNow();
-        var feed = feeds.GetOrAdd(feedId, _ => CreateFeed(feedId, credential, now));
+        var feed = feeds.GetOrAdd(feedId, _ => CreateFeed(feedId, key, now));
 
-        return TryAuthorizeAndTouch(feed, credential, now);
+        return TryAuthorizeAndTouch(feed, key, now);
     }
 
-    private static FeedState CreateFeed(Guid feedId, BasicAuthCredential? credential, DateTimeOffset now)
+    private static FeedState CreateFeed(Guid feedId, FeedAuthorizationKey? key, DateTimeOffset now)
     {
-        if (credential is null)
+        if (key is null)
         {
             return new FeedState(feedId, FeedAccessMode.Open, null, now);
         }
 
-        return new FeedState(feedId, FeedAccessMode.Protected, (byte[])credential.Hash.Clone(), now);
+        return new FeedState(feedId, FeedAccessMode.Protected, (byte[])key.Hash.Clone(), now);
     }
 
     private static FeedAccessResult TryAuthorizeAndTouch(
         FeedState feed,
-        BasicAuthCredential? credential,
+        FeedAuthorizationKey? key,
         DateTimeOffset now)
     {
-        if (feed.Mode == FeedAccessMode.Open && credential is not null)
+        if (feed.Mode == FeedAccessMode.Open && key is not null)
         {
             return FeedAccessResult.Failure(
                 StatusCodes.Status403Forbidden,
-                "Open feed rejects Basic authorization",
-                "This feed was created as open and must be accessed without Basic authorization.");
+                "Open feed rejects authorization keys",
+                "This feed was created as open and must be accessed without an Authorization header.");
         }
 
         if (feed.Mode == FeedAccessMode.Protected)
         {
-            if (credential is null || feed.ProtectedKeyHash is null)
+            if (key is null || feed.ProtectedKeyHash is null)
             {
                 return FeedAccessResult.Failure(
                     StatusCodes.Status401Unauthorized,
-                    "Basic authorization required",
-                    "This feed is protected and requires matching Basic authorization.");
+                    "Authorization key required",
+                    "This feed is protected and requires a matching Authorization key.");
             }
 
-            if (!credential.MatchesHash(feed.ProtectedKeyHash))
+            if (!key.MatchesHash(feed.ProtectedKeyHash))
             {
                 return FeedAccessResult.Failure(
                     StatusCodes.Status401Unauthorized,
-                    "Basic authorization failed",
-                    "The supplied Basic authorization credentials do not match this feed.");
+                    "Authorization key failed",
+                    "The supplied Authorization key does not match this feed.");
             }
         }
 
