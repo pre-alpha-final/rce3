@@ -18,6 +18,7 @@ public class Program
             .ValidateOnStart();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<FeedStore>();
+        builder.Services.AddHostedService<FeedExpirationService>();
 
         builder.WebHost.ConfigureKestrel(options =>
         {

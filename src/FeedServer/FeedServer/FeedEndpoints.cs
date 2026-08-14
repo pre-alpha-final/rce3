@@ -60,7 +60,8 @@ public static class FeedEndpoints
         string feedGuid,
         HttpRequest request,
         FeedStore feedStore,
-        IOptions<FeedServerOptions> options)
+        IOptions<FeedServerOptions> options,
+        ILogger<Program> logger)
     {
         if (!FeedRouteParser.TryParseFeed(feedGuid, out var feedId, out var problem))
         {
@@ -83,6 +84,11 @@ public static class FeedEndpoints
 
         var body = await ReadBodyAsync(request, request.HttpContext.RequestAborted);
         var readerCount = access.Feed!.Publish(new FeedMessage(body, request.ContentType));
+        logger.LogInformation(
+            "Posted {MessageSize} byte message to feed {FeedId}; distributed to {ReaderCount} reader(s).",
+            body.Length,
+            access.Feed.Id,
+            readerCount);
 
         return Results.Text($"Message distributed to {readerCount} reader(s).", "text/plain");
     }
@@ -93,7 +99,8 @@ public static class FeedEndpoints
         HttpRequest request,
         FeedStore feedStore,
         IOptions<FeedServerOptions> options,
-        IHostApplicationLifetime appLifetime)
+        IHostApplicationLifetime appLifetime,
+        ILogger<Program> logger)
     {
         var route = FeedRouteParser.TryParseReader(feedGuid, readerGuid, out var feedId, out var readerId, out var problem);
         if (!route)
@@ -124,6 +131,7 @@ public static class FeedEndpoints
 
         if (message is null)
         {
+            logger.LogInformation("Reader {ReaderId} timed out or completed with no message for feed {FeedId}.", readerId, feedId);
             return Results.NoContent();
         }
 

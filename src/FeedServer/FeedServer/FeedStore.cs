@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace FeedServer;
@@ -6,30 +7,79 @@ namespace FeedServer;
 public sealed class FeedStore
 {
     private readonly ConcurrentDictionary<Guid, FeedState> feeds = new();
+    private readonly TimeSpan feedTtl;
+    private readonly ILogger<FeedStore> logger;
     private readonly int maxQueuedMessagesPerReader;
     private readonly TimeProvider timeProvider;
 
     public FeedStore(TimeProvider timeProvider, IOptions<FeedServerOptions> options)
+        : this(timeProvider, options, NullLogger<FeedStore>.Instance)
+    {
+    }
+
+    public FeedStore(
+        TimeProvider timeProvider,
+        IOptions<FeedServerOptions> options,
+        ILogger<FeedStore> logger)
     {
         this.timeProvider = timeProvider;
+        this.logger = logger;
+        feedTtl = options.Value.FeedTtl;
         maxQueuedMessagesPerReader = options.Value.MaxQueuedMessagesPerReader;
     }
 
     public FeedAccessResult GetOrCreate(Guid feedId, FeedAuthorizationKey? key)
     {
         var now = timeProvider.GetUtcNow();
-        var feed = feeds.GetOrAdd(feedId, _ => CreateFeed(feedId, key, now));
 
-        return TryAuthorizeAndTouch(feed, key, now);
+        while (true)
+        {
+            var feed = feeds.GetOrAdd(feedId, _ => CreateFeed(feedId, key, now));
+            if (feed.IsExpired(now, feedTtl))
+            {
+                if (TryRemove(feedId, feed))
+                {
+                    Expire(feed);
+                }
+
+                continue;
+            }
+
+            return TryAuthorizeAndTouch(feed, key, now);
+        }
+    }
+
+    public int ExpireInactiveFeeds()
+    {
+        var now = timeProvider.GetUtcNow();
+        var expiredCount = 0;
+
+        foreach (var pair in feeds)
+        {
+            if (!pair.Value.IsExpired(now, feedTtl))
+            {
+                continue;
+            }
+
+            if (TryRemove(pair.Key, pair.Value))
+            {
+                Expire(pair.Value);
+                expiredCount++;
+            }
+        }
+
+        return expiredCount;
     }
 
     private FeedState CreateFeed(Guid feedId, FeedAuthorizationKey? key, DateTimeOffset now)
     {
         if (key is null)
         {
+            logger.LogInformation("Created open feed {FeedId}.", feedId);
             return new FeedState(feedId, FeedAccessMode.Open, null, now, maxQueuedMessagesPerReader);
         }
 
+        logger.LogInformation("Created protected feed {FeedId}.", feedId);
         return new FeedState(
             feedId,
             FeedAccessMode.Protected,
@@ -38,13 +88,14 @@ public sealed class FeedStore
             maxQueuedMessagesPerReader);
     }
 
-    private static FeedAccessResult TryAuthorizeAndTouch(
+    private FeedAccessResult TryAuthorizeAndTouch(
         FeedState feed,
         FeedAuthorizationKey? key,
         DateTimeOffset now)
     {
         if (feed.Mode == FeedAccessMode.Open && key is not null)
         {
+            logger.LogWarning("Rejected authorized request for open feed {FeedId}.", feed.Id);
             return FeedAccessResult.Failure(
                 StatusCodes.Status403Forbidden,
                 "Open feed rejects authorization keys",
@@ -55,6 +106,7 @@ public sealed class FeedStore
         {
             if (key is null || feed.ProtectedKeyHash is null)
             {
+                logger.LogWarning("Rejected unauthorized request for protected feed {FeedId}.", feed.Id);
                 return FeedAccessResult.Failure(
                     StatusCodes.Status401Unauthorized,
                     "Authorization key required",
@@ -63,6 +115,7 @@ public sealed class FeedStore
 
             if (!key.MatchesHash(feed.ProtectedKeyHash))
             {
+                logger.LogWarning("Rejected request with mismatched authorization key for protected feed {FeedId}.", feed.Id);
                 return FeedAccessResult.Failure(
                     StatusCodes.Status401Unauthorized,
                     "Authorization key failed",
@@ -72,5 +125,20 @@ public sealed class FeedStore
 
         feed.Touch(now);
         return FeedAccessResult.Success(feed);
+    }
+
+    private bool TryRemove(Guid feedId, FeedState feed)
+    {
+        return ((ICollection<KeyValuePair<Guid, FeedState>>)feeds).Remove(
+            new KeyValuePair<Guid, FeedState>(feedId, feed));
+    }
+
+    private void Expire(FeedState feed)
+    {
+        feed.CompleteReaders();
+        logger.LogInformation(
+            "Expired feed {FeedId} after {FeedTtl} without activity.",
+            feed.Id,
+            feedTtl);
     }
 }

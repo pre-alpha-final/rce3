@@ -6,7 +6,9 @@ namespace FeedServer;
 public sealed class FeedState
 {
     private readonly ConcurrentDictionary<Guid, FeedReaderState> readers = new();
+    private readonly Lock activityLock = new();
     private readonly int maxQueuedMessagesPerReader;
+    private DateTimeOffset lastActivityAt;
 
     public FeedState(
         Guid id,
@@ -19,7 +21,7 @@ public sealed class FeedState
         Mode = mode;
         ProtectedKeyHash = protectedKeyHash;
         CreatedAt = createdAt;
-        LastActivityAt = createdAt;
+        lastActivityAt = createdAt;
         this.maxQueuedMessagesPerReader = maxQueuedMessagesPerReader;
     }
 
@@ -31,7 +33,16 @@ public sealed class FeedState
 
     public DateTimeOffset CreatedAt { get; }
 
-    public DateTimeOffset LastActivityAt { get; private set; }
+    public DateTimeOffset LastActivityAt
+    {
+        get
+        {
+            lock (activityLock)
+            {
+                return lastActivityAt;
+            }
+        }
+    }
 
     public int ReaderCount => readers.Count;
 
@@ -52,7 +63,23 @@ public sealed class FeedState
 
     public void Touch(DateTimeOffset activityAt)
     {
-        LastActivityAt = activityAt;
+        lock (activityLock)
+        {
+            lastActivityAt = activityAt;
+        }
+    }
+
+    public bool IsExpired(DateTimeOffset now, TimeSpan ttl)
+    {
+        return now - LastActivityAt >= ttl;
+    }
+
+    public void CompleteReaders()
+    {
+        foreach (var reader in readers.Values)
+        {
+            reader.Complete();
+        }
     }
 }
 
@@ -87,6 +114,11 @@ public sealed class FeedReaderState
         {
             MarkUnusable();
         }
+    }
+
+    public void Complete()
+    {
+        messages.Writer.TryComplete();
     }
 
     public async ValueTask<FeedMessage?> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken)
