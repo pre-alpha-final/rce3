@@ -92,7 +92,8 @@ public static class FeedEndpoints
         string readerGuid,
         HttpRequest request,
         FeedStore feedStore,
-        IOptions<FeedServerOptions> options)
+        IOptions<FeedServerOptions> options,
+        IHostApplicationLifetime appLifetime)
     {
         var route = FeedRouteParser.TryParseReader(feedGuid, readerGuid, out var feedId, out var readerId, out var problem);
         if (!route)
@@ -112,7 +113,10 @@ public static class FeedEndpoints
             return UnusableReader(options.Value);
         }
 
-        var message = await reader.ReadAsync(options.Value.PollTimeout, request.HttpContext.RequestAborted);
+        using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(
+            request.HttpContext.RequestAborted,
+            appLifetime.ApplicationStopping);
+        var message = await reader.ReadAsync(options.Value.PollTimeout, pollCts.Token);
         if (reader.IsUnusable)
         {
             return UnusableReader(options.Value);
