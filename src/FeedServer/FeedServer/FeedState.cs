@@ -1,10 +1,11 @@
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 
 namespace FeedServer;
 
 public sealed class FeedState
 {
-    private readonly ConcurrentDictionary<Guid, byte> readers = new();
+    private readonly ConcurrentDictionary<Guid, FeedReaderState> readers = new();
 
     public FeedState(Guid id, FeedAccessMode mode, byte[]? protectedKeyHash, DateTimeOffset createdAt)
     {
@@ -27,13 +28,55 @@ public sealed class FeedState
 
     public int ReaderCount => readers.Count;
 
-    public void EnsureReader(Guid readerId)
+    public FeedReaderState EnsureReader(Guid readerId)
     {
-        readers.TryAdd(readerId, 0);
+        return readers.GetOrAdd(readerId, _ => new FeedReaderState());
+    }
+
+    public int Publish(FeedMessage message)
+    {
+        foreach (var reader in readers.Values)
+        {
+            reader.Enqueue(message);
+        }
+
+        return readers.Count;
     }
 
     public void Touch(DateTimeOffset activityAt)
     {
         LastActivityAt = activityAt;
+    }
+}
+
+public sealed record FeedMessage(byte[] Body, string? ContentType);
+
+public sealed class FeedReaderState
+{
+    private readonly Channel<FeedMessage> messages = Channel.CreateUnbounded<FeedMessage>(
+        new UnboundedChannelOptions
+        {
+            SingleReader = false,
+            SingleWriter = false
+        });
+
+    public void Enqueue(FeedMessage message)
+    {
+        messages.Writer.TryWrite(message);
+    }
+
+    public async ValueTask<FeedMessage?> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        using var timeoutCts = new CancellationTokenSource(timeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        try
+        {
+            return await messages.Reader.ReadAsync(linkedCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
     }
 }

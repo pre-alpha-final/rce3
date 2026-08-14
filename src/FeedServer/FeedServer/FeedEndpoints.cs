@@ -56,7 +56,7 @@ public static class FeedEndpoints
         return Results.Text(FeedHelpText.Create(access.Feed, options.Value), "text/plain");
     }
 
-    private static IResult PostFeed(
+    private static async Task<IResult> PostFeed(
         string feedGuid,
         HttpRequest request,
         FeedStore feedStore,
@@ -81,10 +81,13 @@ public static class FeedEndpoints
             return AccessFailure(access);
         }
 
-        return Results.Text("Message accepted for feed handling. Reader queues will be implemented in phase 3.", "text/plain");
+        var body = await ReadBodyAsync(request, request.HttpContext.RequestAborted);
+        var readerCount = access.Feed!.Publish(new FeedMessage(body, request.ContentType));
+
+        return Results.Text($"Message distributed to {readerCount} reader(s).", "text/plain");
     }
 
-    private static IResult GetReader(
+    private static async Task<IResult> GetReader(
         string feedGuid,
         string readerGuid,
         HttpRequest request,
@@ -103,9 +106,14 @@ public static class FeedEndpoints
             return AccessFailure(access);
         }
 
-        access.Feed!.EnsureReader(readerId);
+        var reader = access.Feed!.EnsureReader(readerId);
+        var message = await reader.ReadAsync(options.Value.PollTimeout, request.HttpContext.RequestAborted);
+        if (message is null)
+        {
+            return Results.NoContent();
+        }
 
-        return NotImplemented($"Reader long polling will be implemented in a later phase. Configured timeout: {options.Value.PollTimeout}.");
+        return Results.Bytes(message.Body, message.ContentType ?? "application/octet-stream");
     }
 
     private static IResult BadPath(HttpRequest request)
@@ -135,11 +143,10 @@ public static class FeedEndpoints
         return Results.Problem(title: access.Title, detail: access.Detail, statusCode: access.StatusCode);
     }
 
-    private static IResult NotImplemented(string detail)
+    private static async Task<byte[]> ReadBodyAsync(HttpRequest request, CancellationToken cancellationToken)
     {
-        return Results.Problem(
-            title: "Feed handling not implemented",
-            detail: detail,
-            statusCode: StatusCodes.Status501NotImplemented);
+        using var body = new MemoryStream();
+        await request.Body.CopyToAsync(body, cancellationToken);
+        return body.ToArray();
     }
 }
