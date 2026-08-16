@@ -130,6 +130,22 @@ public class FeedReaderStateTests
         }
     }
 
+    [Fact]
+    public void Publish_ReturnsOnlyReadersThatAcceptedMessage()
+    {
+        var feed = new FeedState(
+            Guid.NewGuid(),
+            FeedAccessMode.Open,
+            protectedKeyHash: null,
+            DateTimeOffset.Parse("2026-08-14T00:00:00Z"),
+            maxQueuedMessagesPerReader: 1);
+
+        feed.EnsureReader(Guid.NewGuid());
+
+        Assert.Equal(1, feed.Publish(Message("first")));
+        Assert.Equal(0, feed.Publish(Message("second")));
+    }
+
     private static FeedMessage Message(string body)
     {
         return new FeedMessage(System.Text.Encoding.UTF8.GetBytes(body), "text/plain");

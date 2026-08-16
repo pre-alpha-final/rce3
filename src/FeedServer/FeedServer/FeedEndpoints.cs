@@ -82,10 +82,13 @@ public static class FeedEndpoints
             return PayloadTooLarge(options.Value);
         }
 
-        var access = GetFeedAccess(request, feedStore, feedId, logger);
-        if (!access.Succeeded)
+        if (!FeedAuthorizationKey.TryRead(request, out var key, out var authorizationProblem))
         {
-            return AccessFailure(access);
+            logger.LogWarning("Rejected invalid authorization for feed {FeedId}: {Problem}", feedId, authorizationProblem);
+            return AccessFailure(FeedAccessResult.Failure(
+                StatusCodes.Status401Unauthorized,
+                "Invalid authorization",
+                authorizationProblem));
         }
 
         byte[] body;
@@ -103,6 +106,21 @@ public static class FeedEndpoints
                 feedId,
                 options.Value.MaxMessageSizeBytes);
             return PayloadTooLarge(options.Value);
+        }
+        catch (Microsoft.AspNetCore.Http.BadHttpRequestException exception)
+            when (exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            logger.LogWarning(
+                "Rejected payload for feed {FeedId}: body exceeds {MaxMessageSizeBytes} bytes.",
+                feedId,
+                options.Value.MaxMessageSizeBytes);
+            return PayloadTooLarge(options.Value);
+        }
+
+        var access = feedStore.GetOrCreate(feedId, key);
+        if (!access.Succeeded)
+        {
+            return AccessFailure(access);
         }
 
         var readerCount = access.Feed!.Publish(new FeedMessage(body, request.ContentType));

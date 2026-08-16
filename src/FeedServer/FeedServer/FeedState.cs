@@ -54,12 +54,16 @@ public sealed class FeedState
 
     public int Publish(FeedMessage message)
     {
+        var deliveredCount = 0;
         foreach (var reader in readers.Values)
         {
-            reader.Enqueue(message);
+            if (reader.Enqueue(message))
+            {
+                deliveredCount++;
+            }
         }
 
-        return readers.Count;
+        return deliveredCount;
     }
 
     public bool TryTouch(DateTimeOffset activityAt)
@@ -129,17 +133,20 @@ public sealed class FeedReaderState
 
     public bool IsUnusable => Volatile.Read(ref unusable) == 1;
 
-    public void Enqueue(FeedMessage message)
+    public bool Enqueue(FeedMessage message)
     {
         if (IsUnusable)
         {
-            return;
+            return false;
         }
 
-        if (!messages.Writer.TryWrite(message))
+        if (messages.Writer.TryWrite(message))
         {
-            MarkUnusable();
+            return true;
         }
+
+        MarkUnusable();
+        return false;
     }
 
     public void Complete()

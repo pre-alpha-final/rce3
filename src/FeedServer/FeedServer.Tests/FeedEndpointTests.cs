@@ -153,6 +153,20 @@ public class FeedEndpointTests
     }
 
     [Fact]
+    public async Task StreamingPayloadOverConfiguredLimit_DoesNotCreateFeed()
+    {
+        using var factory = CreateFactory(("FeedServer:MaxMessageSizeBytes", "5"));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Post, $"/{feedId}", "secret", new UnknownLengthContent("123456")),
+            HttpStatusCode.RequestEntityTooLarge);
+
+        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task ReaderQueueOverflow_MarksReaderUnusable()
     {
         using var factory = CreateFactory(
@@ -247,5 +261,27 @@ public class FeedEndpointTests
     private static StringContent Text(string value)
     {
         return new StringContent(value, Encoding.UTF8, "text/plain");
+    }
+
+    private sealed class UnknownLengthContent : HttpContent
+    {
+        private readonly byte[] body;
+
+        public UnknownLengthContent(string value)
+        {
+            body = Encoding.UTF8.GetBytes(value);
+            Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
+        }
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            return stream.WriteAsync(body).AsTask();
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 }
