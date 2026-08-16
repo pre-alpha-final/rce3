@@ -1,133 +1,183 @@
-# Agent Notes for RCE3
+# Agent Guide for RCE3
 
-## Project Purpose
+## Mission and boundaries
 
-RCE3 is a deliberately tiny ASP.NET Core feed server for ephemeral fan-out messaging. Clients POST an arbitrary raw request body to a feed, and each long-polling reader for that feed receives its own queued copy of every message. Keep the server format-free: no schemas, message envelopes, sender identities, receiver identities, acknowledgements, or client protocol layers unless the user explicitly asks for them.
+RCE3 is a deliberately tiny ASP.NET Core server for ephemeral fan-out messaging. Clients POST arbitrary bytes to a feed. Every reader that already exists on that feed gets an independent queued copy and retrieves messages one at a time through long polling.
 
-The public contract is intentionally small:
+Preserve that simplicity. Do not add schemas, envelopes, message types, sender or receiver identities, acknowledgements, persistence, accounts, dashboards, or client protocol layers unless the user explicitly changes the product direction. Device-specific behavior belongs in clients.
 
-- `GET /` creates a random feed and redirects to it.
-- `GET /{feedGuid}` creates or touches a feed and returns plain text help.
-- `POST /{feedGuid}` publishes the raw body to all readers of the feed.
-- `GET /{feedGuid}/{readerGuid}` long-polls one queued message for that reader.
-- `GET /{feedGuid}/{readerGuid}/reset` clears that reader queue, makes it usable again, and redirects to the reader URL.
+The public API is exactly:
 
-Feed and reader IDs must parse as C# `Guid` values. Missing feeds are created by the first valid request.
+- `GET /` creates a random feed and returns a `302` redirect to it.
+- `GET /{feedGuid}` creates or touches a feed and returns plain-text help.
+- `POST /{feedGuid}` publishes the raw body to all current readers.
+- `GET /{feedGuid}/{readerGuid}` creates or touches a reader and long-polls one queued message.
+- `GET /{feedGuid}/{readerGuid}/reset` creates or resets a reader and redirects to its canonical URL.
 
-## Repository Layout
+Feed and reader route values must parse with C# `Guid.TryParse`. Do not add unrelated public endpoints such as health, diagnostics, or OpenAPI routes without an explicit request.
 
-- `README.MD` describes the current API and curl examples.
-- `docs/my_plan.txt` and `docs/ai_plan.html` are planning references for product intent and edge cases.
-- `src/FeedServer/FeedServer.slnx` is the solution file.
-- `src/FeedServer/FeedServer` contains the ASP.NET Core app.
-- `src/FeedServer/FeedServer.Tests` contains xUnit tests using `Microsoft.AspNetCore.Mvc.Testing`.
-- `scripts/smoke-test.ps1` runs an end-to-end local smoke test against a running server.
-- `scripts/package-release.ps1` runs tests, publishes the app, and zips a release artifact.
-- `src/Examples` may be added for client examples; see the examples guidance below.
+## Documentation authority
 
-## Build and Test
+- `README.MD` is the current user and operator documentation.
+- `docs/my_plan.txt` records the product intent and non-goals.
+- `docs/ai_plan.html` is a historical planning reference. It is useful for rationale, but `README.MD` and the tested contract take precedence for current behavior.
+- Update documentation and tests together when the public behavior changes.
 
-Run from the repository root unless there is a good reason not to:
+Examples must create a reader before publishing. A POST is delivered only to readers that exist when it is accepted; the server does not retain pre-subscription history.
+
+## Repository map
+
+- `src/FeedServer/FeedServer.slnx`: solution.
+- `src/FeedServer/FeedServer`: ASP.NET Core application.
+- `src/FeedServer/FeedServer.Tests`: xUnit integration and unit tests.
+- `src/FeedServer/FeedServer/FeedEndpoints.cs`: minimal API routes, response mapping, and bounded request-body reader.
+- `src/FeedServer/FeedServer/FeedStore.cs`: feed lookup, authorization, activity, and expiration coordination.
+- `src/FeedServer/FeedServer/FeedState.cs`: feed and bounded reader-queue state.
+- `src/FeedServer/FeedServer/FeedExpirationService.cs`: periodic inactive-feed cleanup.
+- `src/FeedServer/FeedServer/FeedServerLog.cs`: source-generated structured logging definitions.
+- `scripts/smoke-test.ps1`: end-to-end open/protected feed check against a running server.
+- `scripts/package-release.ps1`: test, publish, and zip a framework-dependent single-file release.
+
+## Build, test, and run
+
+Run commands from the repository root:
 
 ```powershell
 dotnet test src\FeedServer\FeedServer.slnx
-dotnet run --project src\FeedServer\FeedServer\FeedServer.csproj
+dotnet build src\FeedServer\FeedServer.slnx -c Release -warnaserror
+dotnet run --project src\FeedServer\FeedServer\FeedServer.csproj --no-launch-profile
 .\scripts\smoke-test.ps1 -BaseUrl http://localhost:5137
 .\scripts\package-release.ps1 -Runtime win-x64 -Configuration Release
 ```
 
-The app targets `net10.0`. The default server URL is `http://0.0.0.0:5137` unless `urls` or `ASPNETCORE_URLS` is configured.
+The project targets `net10.0`. With no `urls` or `ASPNETCORE_URLS` override, it binds to `http://0.0.0.0:{Port}`. The launch profiles bind localhost URLs and therefore override `Port` when they are active.
+
+Before finishing any behavior change, run the full solution tests and `git diff --check`. For release/script changes, also run the affected script when practical. Do not leave generated `artifacts/` output in a patch.
 
 ## Configuration
 
-Runtime options are bound from the `FeedServer` config section and validated on startup:
+Options bind from the `FeedServer` section and are validated at startup:
 
-- `Port`, default `5137`.
-- `PollTimeout`, default `00:00:30`.
-- `FeedTtl`, default `1.00:00:00`.
-- `MaxMessageSizeBytes`, default `1048576`.
-- `MaxQueuedMessagesPerReader`, default `1024`.
-- `RequestHeadersTimeout`, default `00:00:30`.
-- `MinRequestBodyDataRateBytesPerSecond`, default `240`.
-- `MinRequestBodyDataRateGracePeriod`, default `00:00:10`.
+- `Port`: `5137`, range 1-65535.
+- `PollTimeout`: `00:00:30`, positive.
+- `FeedTtl`: `1.00:00:00`, positive.
+- `MaxMessageSizeBytes`: `1048576`, range 1 through `int.MaxValue`.
+- `MaxQueuedMessagesPerReader`: `1024`, positive.
+- `RequestHeadersTimeout`: `00:00:30`, positive.
+- `MinRequestBodyDataRateBytesPerSecond`: `240`, positive.
+- `MinRequestBodyDataRateGracePeriod`: `00:00:10`, positive.
 
-Request body size is enforced both through Kestrel limits and by `FeedRequestBodyReader`, including unknown-length streaming bodies.
+Keep Kestrel's request-body limit and `FeedRequestBodyReader`'s streaming limit aligned. Kestrel covers normal hosted requests; the explicit reader also covers unknown-length bodies and in-memory test hosting.
 
-## Authorization Contract
+## Authorization contract
 
-The first valid request to a feed fixes its access mode for the life of that feed:
+The first valid request fixes a feed's mode for that feed's lifetime:
 
-- No `Authorization` header creates an open feed.
-- A single non-empty `Authorization: <key>` header creates a protected feed.
-- Open feeds reject every request that includes `Authorization` with `403 Forbidden`.
-- Protected feeds require the same raw header value on every endpoint; missing or mismatched keys return `401 Unauthorized`.
-- Multiple `Authorization` values or blank authorization values are invalid and return `401 Unauthorized`.
+- No Authorization header creates an open feed.
+- Exactly one non-empty raw Authorization value creates a protected feed.
+- Open feeds reject every request containing Authorization with `403 Forbidden`.
+- Protected feeds return `401 Unauthorized` for a missing or mismatched key.
+- Blank or multiple Authorization values return `401 Unauthorized` and do not create a feed.
 
-Implementation detail: `FeedAuthorizationKey` hashes the raw UTF-8 authorization header value with SHA-256 and compares hashes using fixed-time comparison. Do not store or log raw keys.
+`FeedAuthorizationKey` hashes the raw UTF-8 header value with SHA-256 and uses fixed-time hash comparison. Never store or log raw keys. Never log message bodies.
 
-## Feed and Reader Behavior
+For POST, preserve the deliberate validation order:
 
-- `FeedStore` owns in-memory feed state in a `ConcurrentDictionary`.
-- Feeds are memory-only and disappear on process restart.
-- Valid GET or POST activity touches a feed and extends its TTL.
-- `FeedExpirationService` periodically removes inactive feeds and completes pending reader polls.
-- Expired feeds may be recreated later with a different access mode.
-- `FeedState.Publish` fans each message out to all current readers and returns the count of readers that accepted it.
-- Each reader has an independent bounded `Channel<FeedMessage>`.
-- Readers receive messages one at a time, preserving the original body bytes and `Content-Type`.
-- A reader queue that overflows becomes unusable and reads return `500 Internal Server Error` until `GET /{feedGuid}/{readerGuid}/reset`.
-- Reset completes the previous queue, clears queued messages, clears unusable state, and redirects to the canonical reader URL.
-- Because the service has no sender identity, clients can receive their own posted messages.
+1. Parse the route and Authorization header.
+2. Authorize an existing feed before reporting payload-size errors.
+3. Reject a declared or streamed oversized body without creating a missing feed.
+4. Create/authorize the feed only after the complete body is accepted.
+5. Publish and touch the feed.
 
-## Coding Style
+This order prevents an unauthorized caller from learning protected-feed limits through a different response and prevents invalid POSTs from claiming a feed's access mode.
 
-- Follow the existing C# style: file-scoped namespaces, nullable enabled, implicit usings, small sealed types where appropriate, and straightforward minimal API endpoints.
-- Keep the public API plain and predictable. Prefer text/plain help and ASP.NET problem responses over custom response envelopes.
-- Prefer focused helpers like `FeedRouteParser`, `FeedAuthorizationKey`, and `FeedRequestBodyReader` when behavior has a clear boundary.
-- Preserve concurrency and cancellation semantics. Long polls should return `204 No Content` on timeout, cancellation, feed expiration, reset, or app shutdown when no message is delivered.
-- Keep request logging useful but avoid logging message bodies or authorization secrets.
-- Do not add persistence, user accounts, message types, or per-reader auth unless the user explicitly changes the product direction.
+## Feed and expiration invariants
 
-## Examples Guidance
+- `FeedStore` owns feeds in a `ConcurrentDictionary<Guid, FeedState>`.
+- State is memory-only and is lost on restart.
+- Successful GET activity and accepted POST activity touch a feed; rejected requests do not.
+- Activity time must never move backward when older concurrent requests finish after newer ones.
+- `AuthorizeExisting` is a preliminary POST check and intentionally does not touch the feed.
+- A feed is expired lazily during access and periodically by `FeedExpirationService`.
+- The store and cleanup timer use the injected `TimeProvider`; keep expiration testable without day-long tests.
+- Expiration removes the exact state instance before completing its readers, preventing an old cleanup attempt from deleting a newly recreated feed.
+- Expired feeds may later be recreated with a different access mode.
 
-When adding or changing examples under `src/Examples`, make protected-feed examples secure by default and easy to point at a known feed:
+Preserve concurrency and cancellation behavior. A pending poll with no delivered message resolves as no content on timeout, reset, expiration, application shutdown, or request cancellation where a response can still be written.
 
-- At startup or argument parsing time, read the auth key from the environment variable `RCE3_AUTH`.
-- Use `RCE3_AUTH` as the default `Authorization` value when it is set.
-- At startup or argument parsing time, read the default feed URL from the environment variable `RCE3_FEED_URL`.
-- Use `RCE3_FEED_URL` as the default feed URL when it is set.
-- Allow explicit later options, flags, config values, or command-line arguments to override these defaults.
-- If neither `RCE3_AUTH` nor an explicit override is supplied, examples may demonstrate open-feed behavior only when that is clearly intentional.
-- Do not hard-code real keys in examples, tests, docs, or scripts.
+## Reader and message invariants
 
-This convention lets local examples run against a known protected feed by default without requiring users to paste secrets or feed URLs into source files.
+- Each reader GUID maps to one independent bounded `Channel<FeedMessage>`.
+- A reader receives only messages published after that reader exists.
+- Each successful read removes exactly one message in FIFO order.
+- Body bytes and the complete Content-Type value pass through unchanged. A missing Content-Type becomes `application/octet-stream` on delivery.
+- Multiple simultaneous polls for one reader may consume different messages; `SingleReader` must remain false unless the API contract changes.
+- When a queue is full, the overflow-causing message is rejected for that reader, the channel is completed, and the reader becomes unusable.
+- Reads from an unusable reader return `500 Internal Server Error` until reset. Other readers remain usable.
+- Reset atomically installs a fresh queue, clears unusable state, increments the generation, and completes the previous queue. The generation check prevents an old pending poll from returning an old queued message after reset.
+- Expiring a feed completes all of its current reader queues.
 
-## Testing Expectations
+Because there is no sender identity, clients can receive their own posts. Do not infer sender suppression from HTTP connection, headers, or reader IDs.
 
-Before finishing changes that touch behavior, run:
+## HTTP behavior
 
-```powershell
-dotnet test src\FeedServer\FeedServer.slnx
-```
+- Help, accepted POSTs, and message delivery return `200 OK`.
+- An empty long poll returns `204 No Content`.
+- Root creation and reader reset use `302 Found` with root-relative canonical locations.
+- Malformed documented routes return ASP.NET problem responses with `400 Bad Request`.
+- Authorization failures return problem responses with `401` or `403` as described above.
+- Oversized bodies return a `413` problem response.
+- Unusable readers return a useful `500` problem response that points to reset.
+- POST returns the count of reader queues that accepted the message.
 
-Add or update tests when changing:
+Keep the surface plain: text help, raw message responses, and standard problem details. Do not wrap successful messages in JSON or invent a public data model.
 
-- Route parsing or endpoint status codes.
-- Authorization mode creation or enforcement.
-- Long-poll timeout, cancellation, reset, or expiration behavior.
-- Request body size handling.
-- Reader queue overflow behavior.
-- Feed TTL or cleanup behavior.
-- Example code that depends on `RCE3_AUTH` or `RCE3_FEED_URL` defaults or overrides.
+## Coding conventions
 
-Use short test timeouts through in-memory configuration overrides, as existing endpoint tests do with `FeedServer:PollTimeout`.
+- Follow the existing C# style: file-scoped namespaces, nullable enabled, implicit usings, small sealed state types, and straightforward minimal API handlers.
+- Prefer focused helpers for route parsing, authorization parsing, request-body bounds, and state transitions.
+- Preserve async cancellation and channel-completion semantics.
+- Use the source-generated `FeedServerLog` methods for structured logs with feed/reader IDs and counts. Keep empty long-poll completions at Debug to avoid routine production noise, and never include secrets or bodies.
+- Avoid unrelated dependency additions. Production code currently needs only the ASP.NET Core shared framework.
 
-## Line Endings and Diffs
+## Test expectations
 
-Most existing repository text files use CRLF. Before editing existing text files, detect their line endings and preserve them exactly. After edits, run:
+Add or update tests whenever changing:
+
+- Route shapes, redirects, status codes, help text, or response content types.
+- Open/protected feed creation and every authorization failure case.
+- POST validation order or missing-feed creation behavior.
+- Fan-out, FIFO delivery, concurrent publishing, or queue overflow/reset behavior.
+- Long-poll wake-up, timeout, cancellation, expiration, reset, or shutdown behavior.
+- Feed touches, TTL cleanup, or injected-time behavior.
+- Request size and slow-client configuration.
+- Smoke or packaging scripts.
+
+Use short in-memory `FeedServer:PollTimeout` overrides in endpoint tests. Use an injected/manual `TimeProvider` for TTL tests. Avoid timing-only sleeps when a deterministic queue setup or completion signal can establish the same precondition.
+
+## Examples and secrets
+
+If examples are added under `src/Examples`, read these defaults during startup or argument parsing:
+
+- `RCE3_AUTH` for the Authorization value.
+- `RCE3_FEED_URL` for the feed URL.
+
+Explicit later options or command-line arguments may override them. Do not hard-code real keys in examples, tests, docs, or scripts.
+
+## PowerShell and release safety
+
+- Check `$LASTEXITCODE` after native commands whose failure must stop a script; `$ErrorActionPreference = "Stop"` alone is not sufficient in all supported PowerShell versions.
+- Validate values interpolated into deletion paths.
+- Resolve and verify recursive deletion targets before `Remove-Item -Recurse`.
+- Keep the publish directory a direct child of the requested output root.
+
+## Line endings and diff hygiene
+
+Existing repository text files use CRLF except `docs/ai_plan.html`, which uses LF. Detect the target file before editing and preserve its exact convention. Never leave mixed line endings or introduce line-ending-only churn.
+
+The working tree may contain user changes. Inspect `git status`, preserve unrelated edits, and never use destructive reset/checkout commands to discard them. Finish with:
 
 ```powershell
 git diff --check
+git status --short
 ```
-
-Avoid unrelated formatting churn and do not normalize line endings unless explicitly asked.

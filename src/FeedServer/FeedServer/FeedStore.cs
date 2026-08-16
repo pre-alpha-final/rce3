@@ -88,11 +88,11 @@ public sealed class FeedStore
     {
         if (key is null)
         {
-            logger.LogInformation("Created open feed {FeedId}.", feedId);
+            FeedServerLog.OpenFeedCreated(logger, feedId);
             return new FeedState(feedId, FeedAccessMode.Open, null, now, maxQueuedMessagesPerReader);
         }
 
-        logger.LogInformation("Created protected feed {FeedId}.", feedId);
+        FeedServerLog.ProtectedFeedCreated(logger, feedId);
         return new FeedState(
             feedId,
             FeedAccessMode.Protected,
@@ -124,7 +124,7 @@ public sealed class FeedStore
     {
         if (feed.Mode == FeedAccessMode.Open && key is not null)
         {
-            logger.LogWarning("Rejected authorized request for open feed {FeedId}.", feed.Id);
+            FeedServerLog.AuthorizationRejectedForOpenFeed(logger, feed.Id);
             return FeedAccessResult.Failure(
                 StatusCodes.Status403Forbidden,
                 "Open feed rejects authorization keys",
@@ -135,7 +135,7 @@ public sealed class FeedStore
         {
             if (key is null || feed.ProtectedKeyHash is null)
             {
-                logger.LogWarning("Rejected unauthorized request for protected feed {FeedId}.", feed.Id);
+                FeedServerLog.AuthorizationRequiredForProtectedFeed(logger, feed.Id);
                 return FeedAccessResult.Failure(
                     StatusCodes.Status401Unauthorized,
                     "Authorization key required",
@@ -144,7 +144,7 @@ public sealed class FeedStore
 
             if (!key.MatchesHash(feed.ProtectedKeyHash))
             {
-                logger.LogWarning("Rejected request with mismatched authorization key for protected feed {FeedId}.", feed.Id);
+                FeedServerLog.AuthorizationMismatchForProtectedFeed(logger, feed.Id);
                 return FeedAccessResult.Failure(
                     StatusCodes.Status401Unauthorized,
                     "Authorization key failed",
@@ -180,9 +180,6 @@ public sealed class FeedStore
     private void Expire(FeedState feed)
     {
         feed.CompleteReaders();
-        logger.LogInformation(
-            "Expired feed {FeedId} after {FeedTtl} without activity.",
-            feed.Id,
-            feedTtl);
+        FeedServerLog.FeedExpired(logger, feed.Id, feedTtl);
     }
 }

@@ -19,6 +19,19 @@ function Assert-Status {
     }
 }
 
+function Assert-Redirect {
+    param(
+        [System.Net.Http.HttpResponseMessage]$Response,
+        [string]$ExpectedLocation,
+        [string]$Label
+    )
+
+    Assert-Status $Response ([System.Net.HttpStatusCode]::Redirect) $Label
+    if ($Response.Headers.Location.OriginalString -ne $ExpectedLocation) {
+        throw "$Label expected redirect to '$ExpectedLocation' but got '$($Response.Headers.Location)'"
+    }
+}
+
 function New-Request {
     param(
         [System.Net.Http.HttpMethod]$Method,
@@ -40,7 +53,9 @@ function New-Request {
     return $request
 }
 
-$client = [System.Net.Http.HttpClient]::new()
+$handler = [System.Net.Http.HttpClientHandler]::new()
+$handler.AllowAutoRedirect = $false
+$client = [System.Net.Http.HttpClient]::new($handler)
 $client.Timeout = [TimeSpan]::FromSeconds(45)
 $BaseUrl = $BaseUrl.TrimEnd("/")
 
@@ -50,11 +65,13 @@ try {
     $openFeedUrl = "$BaseUrl/$openFeedId"
     $openReaderUrl = "$openFeedUrl/$openReaderId"
 
+    $response = $client.GetAsync("$openReaderUrl/reset").GetAwaiter().GetResult()
+    Assert-Redirect $response "/$openFeedId/$openReaderId" "open reader reset"
+
     $response = $client.GetAsync($openFeedUrl).GetAwaiter().GetResult()
     Assert-Status $response ([System.Net.HttpStatusCode]::OK) "open feed help"
 
     $readerTask = $client.GetAsync($openReaderUrl)
-    Start-Sleep -Milliseconds 300
     $content = [System.Net.Http.StringContent]::new("open-smoke", [System.Text.Encoding]::UTF8, "text/plain")
     $response = $client.PostAsync($openFeedUrl, $content).GetAwaiter().GetResult()
     Assert-Status $response ([System.Net.HttpStatusCode]::OK) "open feed post"
@@ -75,11 +92,13 @@ try {
     $protectedReaderUrl = "$protectedFeedUrl/$protectedReaderId"
     $key = "smoke-test-key"
 
+    $response = $client.SendAsync((New-Request ([System.Net.Http.HttpMethod]::Get) "$protectedReaderUrl/reset" $key $null)).GetAwaiter().GetResult()
+    Assert-Redirect $response "/$protectedFeedId/$protectedReaderId" "protected reader reset"
+
     $response = $client.SendAsync((New-Request ([System.Net.Http.HttpMethod]::Get) $protectedFeedUrl $key $null)).GetAwaiter().GetResult()
     Assert-Status $response ([System.Net.HttpStatusCode]::OK) "protected feed help"
 
     $readerTask = $client.SendAsync((New-Request ([System.Net.Http.HttpMethod]::Get) $protectedReaderUrl $key $null))
-    Start-Sleep -Milliseconds 300
     $content = [System.Net.Http.StringContent]::new("protected-smoke", [System.Text.Encoding]::UTF8, "text/plain")
     $response = $client.SendAsync((New-Request ([System.Net.Http.HttpMethod]::Post) $protectedFeedUrl $key $content)).GetAwaiter().GetResult()
     Assert-Status $response ([System.Net.HttpStatusCode]::OK) "protected feed post"

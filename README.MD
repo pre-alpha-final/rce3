@@ -1,55 +1,43 @@
-# Rce3 - Remote Controlled Electronics v3
+# RCE3 - Remote Controlled Electronics v3
 
-After two somewhat successful attempts, it's time to drop all pretense of professionalism and goblin-engineer something actually worth using. A tiny, wysiwyg feed server; POST a raw request body to a feed and every long-pooling "connected" reader gets it. No types, no formats, no protocols, no redtape.
+After two somewhat successful attempts, it's time to drop all pretense of professionalism and goblin-engineer something actually worth using. A tiny, wysiwyg feed server; POST a raw request body to a feed and every long-pooling "connected" reader gets it. There are no message schemas, envelopes, sender identities, receiver identities, acknowledgements, or required client libraries.
 
-## API
+## HTTP API
 
-```text
-GET  /                         Create a random feed and redirect to it.
-GET  /{feedGuid}                Create or touch a feed and return help.
-POST /{feedGuid}                Publish the raw request body to all readers.
-GET  /{feedGuid}/{readerGuid}   Long-poll one queued message for one reader.
-GET  /{feedGuid}/{readerGuid}/reset
-                                Clear one reader queue, make it usable again, and redirect to it.
-```
+| Request | Behavior |
+| --- | --- |
+| `GET /` | Create a random feed and redirect to `/{feedGuid}`. |
+| `GET /{feedGuid}` | Create or touch a feed and return plain-text help. |
+| `POST /{feedGuid}` | Publish the raw request body to every current reader. |
+| `GET /{feedGuid}/{readerGuid}` | Create or touch a reader and return one queued message, or `204 No Content` after the poll timeout. |
+| `GET /{feedGuid}/{readerGuid}/reset` | Create or reset a reader, discard its queued messages, make it usable after overflow, and redirect to the reader URL. |
 
-Feed and reader IDs must be valid GUIDs. A missing feed is created by the first valid request.
+Feed and reader IDs must parse as C# `Guid` values. A missing feed is created by the first valid request. A POST is valid for creation only after its authorization and body-size checks pass.
+
+Messages are fanned out only to readers that exist when the POST is accepted. Create a reader first by calling its reset endpoint or starting a long poll. Each reader has an independent FIFO queue, and clients can receive their own messages because the server has no sender identity.
+
+The response to a reader preserves the posted `Content-Type`. If the POST did not include one, the response uses `application/octet-stream`.
 
 ## Authorization
 
-The first valid request to a feed sets its access mode:
+The first valid request fixes a feed's access mode until that feed expires:
 
-- No `Authorization` header creates an open feed.
-- `Authorization: <key>` creates a protected feed.
+- No `Authorization` header creates an open feed. Open feeds reject requests that include the header with `403 Forbidden`.
+- One non-empty `Authorization: <key>` header creates a protected feed. Protected feeds return `401 Unauthorized` for a missing or mismatched key.
+- Blank or multiple Authorization values are invalid, return `401 Unauthorized`, and do not create a feed.
 
-Open feeds reject requests with `Authorization`. Protected feeds require the same key on every request.
+## Responses and limits
 
-## Curl examples
+- `200 OK`: help, accepted POST, or delivery of one message.
+- `204 No Content`: long-poll timeout, cancellation, feed expiration, reset, or shutdown when no message was delivered.
+- `302 Found`: feed creation or reader reset redirect.
+- `400 Bad Request`: malformed GUID or path.
+- `401 Unauthorized`: invalid Authorization header or failed protected-feed authorization.
+- `403 Forbidden`: an Authorization header was sent to an open feed.
+- `413 Payload Too Large`: the body exceeds `MaxMessageSizeBytes`, including an unknown-length streaming body.
+- `500 Internal Server Error`: the reader queue overflowed and must be reset.
 
-### Open feed
-
-```bash
-FEED_ID=4cb82df9-f198-40d8-8f11-fc59365e28a2
-READER_ID=0576e9fc-75d5-4620-9d72-a7ff33d859de
-
-curl http://localhost:5137/$FEED_ID
-curl -X POST http://localhost:5137/$FEED_ID --data-binary 'hello feed' -H 'Content-Type: text/plain'
-curl http://localhost:5137/$FEED_ID/$READER_ID
-curl http://localhost:5137/$FEED_ID/$READER_ID/reset
-```
-
-### Protected feed
-
-```bash
-FEED_ID=56d248ae-8723-4e33-b56c-02e290f8bf84
-READER_ID=090259f4-9d9e-4ee5-a94e-ddcb6fc36378
-KEY='test-feed-key'
-
-curl http://localhost:5137/$FEED_ID -H "Authorization: $KEY"
-curl -X POST http://localhost:5137/$FEED_ID -H "Authorization: $KEY" --data-binary 'secret hello'
-curl http://localhost:5137/$FEED_ID/$READER_ID -H "Authorization: $KEY"
-curl http://localhost:5137/$FEED_ID/$READER_ID/reset -H "Authorization: $KEY"
-```
+An overflow makes that reader unusable and its queued messages unavailable. It does not affect other readers. The overflow-causing message is not accepted by that reader.
 
 ## License
 

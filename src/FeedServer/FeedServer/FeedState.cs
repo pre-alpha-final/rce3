@@ -75,7 +75,11 @@ public sealed class FeedState
                 return false;
             }
 
-            lastActivityAt = activityAt;
+            if (activityAt > lastActivityAt)
+            {
+                lastActivityAt = activityAt;
+            }
+
             return true;
         }
     }

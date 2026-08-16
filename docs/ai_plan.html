@@ -254,6 +254,9 @@
         <span class="pill">Core pattern: POST plus long polling</span>
         <span class="pill">Retention: inactive feeds expire after 24h</span>
       </div>
+      <p class="lede">
+        Status note: this is the original planning reference, updated to include the reset and random-feed routes. See <a href="../README.MD"><code>README.MD</code></a> for the current operating contract and commands.
+      </p>
     </header>
 
     <section>
@@ -282,6 +285,7 @@
       <h2>Scope</h2>
       <h3>In Scope</h3>
       <ul>
+        <li>A root endpoint that creates a random feed and redirects to it.</li>
         <li>HTTP endpoints for feed help, posting messages, long-polling reader queues, and resetting reader queues.</li>
         <li>Implicit feed creation on first valid request.</li>
         <li>Feed mode selection at creation: open or Authorization-key protected.</li>
@@ -292,7 +296,7 @@
         <li>Bare-bones browser-readable help at <code>GET /feed-guid</code>.</li>
       </ul>
 
-      <h3>Design Boundaries</h3>
+      <h3>Out of Scope</h3>
       <ul>
         <li>User accounts, sender identity, receiver identity, and delivery acknowledgements.</li>
         <li>Message schemas, type negotiation, format validation, or special device protocols.</li>
@@ -315,10 +319,16 @@
         </thead>
         <tbody>
           <tr>
+            <td data-label="Endpoint"><code>GET /</code></td>
+            <td data-label="Purpose">Create a random feed and redirect to its canonical URL.</td>
+            <td data-label="Request">The Authorization header, if present, sets the new feed's protected key.</td>
+            <td data-label="Response"><code>302 Found</code> with <code>Location: /{feedGuid}</code>.</td>
+          </tr>
+          <tr>
             <td data-label="Endpoint"><code>GET /{feedGuid}</code></td>
             <td data-label="Purpose">Create or touch a feed, then show minimal integration help.</td>
             <td data-label="Request">Optional Authorization key only if creating or accessing a protected feed.</td>
-            <td data-label="Response">Plain text or simple HTML help with the three endpoint patterns and auth rule.</td>
+            <td data-label="Response">Plain text help with the four feed endpoint patterns and auth rule.</td>
           </tr>
           <tr>
             <td data-label="Endpoint"><code>POST /{feedGuid}</code></td>
@@ -347,6 +357,7 @@
         <li><code>204 No Content</code> when a long-poll request times out after 30 seconds with no messages.</li>
         <li><code>400 Bad Request</code> for malformed feed GUIDs, malformed reader GUIDs, or unusable request paths.</li>
         <li><code>401 Unauthorized</code> when a protected feed is accessed without the correct Authorization key.</li>
+        <li><code>401 Unauthorized</code> when Authorization is blank or has multiple values.</li>
         <li><code>403 Forbidden</code> when an open feed is accessed with an Authorization key, because protected access to an open feed is explicitly invalid.</li>
         <li><code>413 Payload Too Large</code> when a message exceeds the configured maximum body size.</li>
         <li><code>500 Internal Server Error</code> when a reader queue has exceeded its configured size limit and has become unusable until reset.</li>
@@ -357,8 +368,8 @@
       <h2>Lifecycle Rules</h2>
       <h3>Feed Lifecycle</h3>
       <ol>
-        <li>Any valid request for a missing feed creates that feed.</li>
-        <li>If the creation request includes an Authorization key, the feed becomes protected and that supplied key becomes the feed key.</li>
+        <li>Any valid request for a missing feed creates that feed; invalid Authorization and rejected POST bodies do not.</li>
+        <li>If the creation request includes one non-empty Authorization value, the feed becomes protected and that supplied key becomes the feed key.</li>
         <li>If the creation request has no Authorization header, the feed becomes open.</li>
         <li>The selected mode is permanent for the life of the feed.</li>
         <li>Protected feeds require a matching Authorization key on every request.</li>
@@ -452,7 +463,7 @@
     <section>
       <h2>Testing Plan</h2>
       <ul>
-        <li><span class="status must">Contract tests:</span> verify all three endpoint shapes, expected status codes, body pass-through, and timeout behavior.</li>
+        <li><span class="status must">Contract tests:</span> verify all five endpoint shapes, expected status codes, body pass-through, and timeout behavior.</li>
         <li><span class="status must">Auth tests:</span> cover open feed creation, protected feed creation, wrong key, missing key, and protected request sent to an open feed.</li>
         <li><span class="status must">Queue tests:</span> prove that each reader receives every feed message independently, including messages posted by the same client, one message per read response.</li>
         <li><span class="status must">Content tests:</span> verify that the original <code>Content-Type</code> is preserved when a message is returned to a reader.</li>

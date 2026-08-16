@@ -1,37 +1,56 @@
 @FeedServer_HostAddress = http://localhost:5137
-@FeedGuid = 4cb82df9-f198-40d8-8f11-fc59365e28a2
-@ReaderGuid = 0576e9fc-75d5-4620-9d72-a7ff33d859de
+@OpenFeedGuid = 4cb82df9-f198-40d8-8f11-fc59365e28a2
+@OpenReaderGuid = 0576e9fc-75d5-4620-9d72-a7ff33d859de
+@ProtectedFeedGuid = 56d248ae-8723-4e33-b56c-02e290f8bf84
+@ProtectedReaderGuid = 090259f4-9d9e-4ee5-a94e-ddcb6fc36378
+@Authorization = local-test-key
 
-GET {{FeedServer_HostAddress}}/{{FeedGuid}}
-Accept: text/plain
+GET {{FeedServer_HostAddress}}/
 
 ###
 
-POST {{FeedServer_HostAddress}}/{{FeedGuid}}
+GET {{FeedServer_HostAddress}}/{{OpenFeedGuid}}
+Accept: text/plain
+
+### Create the reader before publishing; do not follow the redirect.
+
+GET {{FeedServer_HostAddress}}/{{OpenFeedGuid}}/{{OpenReaderGuid}}/reset
+
+###
+
+POST {{FeedServer_HostAddress}}/{{OpenFeedGuid}}
 Content-Type: text/plain
 
-hello feed
+hello open feed
 
 ###
 
-GET {{FeedServer_HostAddress}}/{{FeedGuid}}/{{ReaderGuid}}
-Accept: text/plain
+GET {{FeedServer_HostAddress}}/{{OpenFeedGuid}}/{{OpenReaderGuid}}
+
+### Open feeds reject Authorization.
+
+GET {{FeedServer_HostAddress}}/{{OpenFeedGuid}}
+Authorization: {{Authorization}}
 
 ###
 
 GET {{FeedServer_HostAddress}}/not-a-guid
 Accept: application/problem+json
 
-###
+### The first protected request creates both feed and reader.
 
-GET {{FeedServer_HostAddress}}/{{FeedGuid}}
-Authorization: test-feed-key
-Accept: application/problem+json
-
-###
-
-GET {{FeedServer_HostAddress}}/56d248ae-8723-4e33-b56c-02e290f8bf84
-Authorization: test-feed-key
-Accept: text/plain
+GET {{FeedServer_HostAddress}}/{{ProtectedFeedGuid}}/{{ProtectedReaderGuid}}/reset
+Authorization: {{Authorization}}
 
 ###
+
+POST {{FeedServer_HostAddress}}/{{ProtectedFeedGuid}}
+Authorization: {{Authorization}}
+Content-Type: application/octet-stream
+
+protected feed body
+
+###
+
+GET {{FeedServer_HostAddress}}/{{ProtectedFeedGuid}}/{{ProtectedReaderGuid}}
+Authorization: {{Authorization}}

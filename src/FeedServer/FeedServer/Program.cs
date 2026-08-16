@@ -11,7 +11,6 @@ public class Program
             .GetSection(FeedServerOptions.SectionName)
             .Get<FeedServerOptions>() ?? new FeedServerOptions();
 
-        builder.Services.AddOpenApi();
         builder.Services
             .AddOptions<FeedServerOptions>()
             .Bind(builder.Configuration.GetSection(FeedServerOptions.SectionName))
@@ -37,17 +36,12 @@ public class Program
 
         var app = builder.Build();
 
-        if (app.Environment.IsDevelopment())
-        {
-            app.MapOpenApi();
-        }
-
         FeedEndpoints.Map(app);
 
         app.Run();
     }
 
-    private static bool HasConfiguredUrls(IConfiguration configuration)
+    private static bool HasConfiguredUrls(ConfigurationManager configuration)
     {
         return !string.IsNullOrWhiteSpace(configuration["urls"])
             || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS"));

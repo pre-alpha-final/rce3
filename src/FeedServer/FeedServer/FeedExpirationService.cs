@@ -9,20 +9,23 @@ public sealed class FeedExpirationService : BackgroundService
     private readonly FeedStore feedStore;
     private readonly ILogger<FeedExpirationService> logger;
     private readonly FeedServerOptions options;
+    private readonly TimeProvider timeProvider;
 
     public FeedExpirationService(
         FeedStore feedStore,
         IOptions<FeedServerOptions> options,
+        TimeProvider timeProvider,
         ILogger<FeedExpirationService> logger)
     {
         this.feedStore = feedStore;
         this.options = options.Value;
+        this.timeProvider = timeProvider;
         this.logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(GetCleanupInterval(options.FeedTtl));
+        using var timer = new PeriodicTimer(GetCleanupInterval(options.FeedTtl), timeProvider);
 
         try
         {
@@ -31,7 +34,7 @@ public sealed class FeedExpirationService : BackgroundService
                 var expiredFeeds = feedStore.ExpireInactiveFeeds();
                 if (expiredFeeds > 0)
                 {
-                    logger.LogInformation("Expired {ExpiredFeedCount} inactive feed(s).", expiredFeeds);
+                    FeedServerLog.InactiveFeedsExpired(logger, expiredFeeds);
                 }
             }
         }

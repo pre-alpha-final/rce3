@@ -1,0 +1,16 @@
+* text=auto
+
+.gitattributes text eol=crlf
+.gitignore text eol=crlf
+LICENSE text eol=crlf
+*.cs text eol=crlf
+*.csproj text eol=crlf
+*.http text eol=crlf
+*.json text eol=crlf
+*.md text eol=crlf
+*.MD text eol=crlf
+*.ps1 text eol=crlf
+*.slnx text eol=crlf
+*.txt text eol=crlf
+
+docs/ai_plan.html text eol=lf

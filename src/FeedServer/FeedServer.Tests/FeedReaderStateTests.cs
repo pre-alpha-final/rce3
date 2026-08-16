@@ -125,6 +125,20 @@ public class FeedReaderStateTests
     }
 
     [Fact]
+    public void TryTouch_DoesNotMoveLastActivityBackward()
+    {
+        var createdAt = DateTimeOffset.Parse("2026-08-14T00:00:00Z");
+        var feed = new FeedState(Guid.NewGuid(), FeedAccessMode.Open, null, createdAt, maxQueuedMessagesPerReader: 10);
+        var laterActivity = createdAt + TimeSpan.FromMinutes(2);
+        var delayedEarlierActivity = createdAt + TimeSpan.FromMinutes(1);
+
+        Assert.True(feed.TryTouch(laterActivity));
+        Assert.True(feed.TryTouch(delayedEarlierActivity));
+
+        Assert.Equal(laterActivity, feed.LastActivityAt);
+    }
+
+    [Fact]
     public async Task Publish_ConcurrentPostsFanOutEveryMessageToEveryReader()
     {
         const int readerCount = 20;

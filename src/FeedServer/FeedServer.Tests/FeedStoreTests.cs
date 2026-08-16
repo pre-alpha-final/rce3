@@ -87,6 +87,23 @@ public class FeedStoreTests
         Assert.NotSame(protectedAccess.Feed, openAccess.Feed);
     }
 
+    [Fact]
+    public void RejectedAuthorizationDoesNotExtendFeedLifetime()
+    {
+        var timeProvider = new ManualTimeProvider(DateTimeOffset.Parse("2026-08-14T00:00:00Z"));
+        var store = CreateStore(timeProvider, TimeSpan.FromHours(1));
+        var feedId = Guid.NewGuid();
+        var firstAccess = store.GetOrCreate(feedId, ReadKey("secret"));
+
+        timeProvider.Advance(TimeSpan.FromMinutes(45));
+        var rejectedAccess = store.GetOrCreate(feedId, ReadKey("wrong"));
+        timeProvider.Advance(TimeSpan.FromMinutes(16));
+        var recreatedAccess = store.GetOrCreate(feedId, ReadKey("secret"));
+
+        Assert.False(rejectedAccess.Succeeded);
+        Assert.NotSame(firstAccess.Feed, recreatedAccess.Feed);
+    }
+
     private static FeedStore CreateStore(ManualTimeProvider timeProvider, TimeSpan feedTtl)
     {
         return new FeedStore(

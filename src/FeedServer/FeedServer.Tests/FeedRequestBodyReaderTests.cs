@@ -39,6 +39,17 @@ public class FeedRequestBodyReaderTests
     }
 
     [Fact]
+    public void OptionsRejectInvalidCoreLimits()
+    {
+        Assert.True(FeedServerOptions.IsValid(new FeedServerOptions()));
+        Assert.False(FeedServerOptions.IsValid(new FeedServerOptions { Port = 0 }));
+        Assert.False(FeedServerOptions.IsValid(new FeedServerOptions { Port = 65536 }));
+        Assert.False(FeedServerOptions.IsValid(new FeedServerOptions { PollTimeout = TimeSpan.Zero }));
+        Assert.False(FeedServerOptions.IsValid(new FeedServerOptions { FeedTtl = TimeSpan.Zero }));
+        Assert.False(FeedServerOptions.IsValid(new FeedServerOptions { MaxQueuedMessagesPerReader = 0 }));
+    }
+
+    [Fact]
     public void OptionsRejectUnsafeSlowClientLimits()
     {
         Assert.False(FeedServerOptions.IsValid(new FeedServerOptions

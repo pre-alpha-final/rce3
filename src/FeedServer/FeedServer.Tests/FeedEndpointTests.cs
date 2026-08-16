@@ -14,12 +14,33 @@ public class FeedEndpointTests
         using var factory = CreateFactory();
         using var client = CreateClient(factory);
 
-        var response = await client.GetAsync("/");
+        using var response = await client.GetAsync("/");
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.NotNull(response.Headers.Location);
         var feedPath = response.Headers.Location!.OriginalString.TrimStart('/');
         Assert.True(Guid.TryParse(feedPath, out _));
+
+        await AssertStatusAsync(client.GetAsync(response.Headers.Location), HttpStatusCode.OK);
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Get, response.Headers.Location!.OriginalString, "unexpected-key"),
+            HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Root_WithAuthorizationCreatesProtectedFeed()
+    {
+        using var factory = CreateFactory();
+        using var client = CreateClient(factory);
+
+        using var response = await SendAsync(client, HttpMethod.Get, "/", "secret");
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.NotNull(response.Headers.Location);
+        await AssertStatusAsync(client.GetAsync(response.Headers.Location), HttpStatusCode.Unauthorized);
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Get, response.Headers.Location!.OriginalString, "secret"),
+            HttpStatusCode.OK);
     }
 
     [Fact]
@@ -36,6 +57,7 @@ public class FeedEndpointTests
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/extra"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/reset/extra"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.DeleteAsync($"/{feedId}"), HttpStatusCode.BadRequest);
+        await AssertStatusAsync(client.GetAsync("/openapi/v1.json"), HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -88,9 +110,47 @@ public class FeedEndpointTests
         using var request = new HttpRequestMessage(HttpMethod.Get, $"/{feedId}");
         request.Headers.TryAddWithoutValidation("Authorization", ["first", "second"]);
 
-        var response = await client.SendAsync(request);
+        using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task WhitespaceOnlyAuthorizationHeader_ReturnsUnauthorizedWithoutCreatingFeed()
+    {
+        using var factory = CreateFactory();
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Get, $"/{feedId}", "   "),
+            HttpStatusCode.Unauthorized);
+        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task FeedHelp_ReportsCanonicalIdModeAndConfiguredLimits()
+    {
+        using var factory = CreateFactory(
+            ("FeedServer:PollTimeout", "00:00:03"),
+            ("FeedServer:FeedTtl", "02:00:00"),
+            ("FeedServer:MaxMessageSizeBytes", "123"),
+            ("FeedServer:MaxQueuedMessagesPerReader", "7"));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+
+        using var response = await SendAsync(client, HttpMethod.Get, $"/{feedId:N}", "secret");
+        var help = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
+        Assert.Contains($"FeedId: {feedId:D}", help, StringComparison.Ordinal);
+        Assert.Contains("Mode: protected", help, StringComparison.Ordinal);
+        Assert.Contains("Max body: 123 bytes", help, StringComparison.Ordinal);
+        Assert.Contains("after 00:00:03", help, StringComparison.Ordinal);
+        Assert.Contains("exceeding 7 queued messages", help, StringComparison.Ordinal);
+        Assert.Contains("expires after 2 hours", help, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -141,14 +201,33 @@ public class FeedEndpointTests
         await Task.Delay(TimeSpan.FromMilliseconds(50));
         var body = new byte[] { 0, 1, 2, 3, 255 };
         using var content = new ByteArrayContent(body);
-        content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/x-rce-test");
+        const string contentType = "application/x-rce-test; version=3";
+        content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
 
         await AssertStatusAsync(client.PostAsync($"/{feedId}", content), HttpStatusCode.OK);
-        var response = await readerTask.WaitAsync(TimeSpan.FromSeconds(2));
+        using var response = await readerTask.WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("application/x-rce-test", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(contentType, response.Content.Headers.ContentType?.ToString());
         Assert.Equal(body, await response.Content.ReadAsByteArrayAsync());
+    }
+
+    [Fact]
+    public async Task PostedBody_WithoutContentTypeUsesBinaryDefault()
+    {
+        using var factory = CreateFactory(("FeedServer:PollTimeout", "00:00:00.010"));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+        var readerId = Guid.NewGuid();
+
+        await AssertRedirectAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), $"/{feedId:D}/{readerId:D}");
+        using var content = new ByteArrayContent([0, 1, 2]);
+        await AssertStatusAsync(client.PostAsync($"/{feedId}", content), HttpStatusCode.OK);
+        using var response = await client.GetAsync($"/{feedId}/{readerId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/octet-stream", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(new byte[] { 0, 1, 2 }, await response.Content.ReadAsByteArrayAsync());
     }
 
     [Fact]
@@ -182,6 +261,26 @@ public class FeedEndpointTests
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Empty(await response.Content.ReadAsByteArrayAsync());
+    }
+
+    [Fact]
+    public async Task BackgroundExpiration_CompletesPendingPollAndAllowsNewAccessMode()
+    {
+        using var factory = CreateFactory(
+            ("FeedServer:PollTimeout", "00:00:05"),
+            ("FeedServer:FeedTtl", "00:00:00.100"));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+        var readerId = Guid.NewGuid();
+
+        using var response = await SendAsync(
+            client,
+            HttpMethod.Get,
+            $"/{feedId}/{readerId}",
+            "secret").WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
     }
 
     [Fact]
@@ -246,6 +345,20 @@ public class FeedEndpointTests
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.NoContent);
         await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("after-reset")), HttpStatusCode.OK);
         Assert.Equal("after-reset", await ReadStringAsync(client, feedId, readerId));
+    }
+
+    [Fact]
+    public async Task ResetReader_CreatesMissingReader()
+    {
+        using var factory = CreateFactory(("FeedServer:PollTimeout", "00:00:00.010"));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+        var readerId = Guid.NewGuid();
+
+        await AssertRedirectAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), $"/{feedId:D}/{readerId:D}");
+        await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("queued")), HttpStatusCode.OK);
+
+        Assert.Equal("queued", await ReadStringAsync(client, feedId, readerId));
     }
 
     [Fact]
