@@ -48,6 +48,26 @@ public sealed class FeedStore
         }
     }
 
+    public FeedAccessResult? AuthorizeExisting(Guid feedId, FeedAuthorizationKey? key)
+    {
+        var now = timeProvider.GetUtcNow();
+
+        while (true)
+        {
+            if (!feeds.TryGetValue(feedId, out var feed))
+            {
+                return null;
+            }
+
+            if (TryExpire(feedId, feed, now))
+            {
+                continue;
+            }
+
+            return TryAuthorize(feed, key);
+        }
+    }
+
     public int ExpireInactiveFeeds()
     {
         var now = timeProvider.GetUtcNow();
@@ -86,6 +106,22 @@ public sealed class FeedStore
         FeedAuthorizationKey? key,
         DateTimeOffset now)
     {
+        var access = TryAuthorize(feed, key);
+        if (access is null || !access.Succeeded)
+        {
+            return access;
+        }
+
+        if (!feed.TryTouch(now))
+        {
+            return null;
+        }
+
+        return access;
+    }
+
+    private FeedAccessResult? TryAuthorize(FeedState feed, FeedAuthorizationKey? key)
+    {
         if (feed.Mode == FeedAccessMode.Open && key is not null)
         {
             logger.LogWarning("Rejected authorized request for open feed {FeedId}.", feed.Id);
@@ -114,11 +150,6 @@ public sealed class FeedStore
                     "Authorization key failed",
                     "The supplied Authorization key does not match this feed.");
             }
-        }
-
-        if (!feed.TryTouch(now))
-        {
-            return null;
         }
 
         return FeedAccessResult.Success(feed);

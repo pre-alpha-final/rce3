@@ -94,6 +94,43 @@ public class FeedEndpointTests
     }
 
     [Fact]
+    public async Task OversizedPostToProtectedFeed_EnforcesAuthorizationBeforePayloadLimit()
+    {
+        using var factory = CreateFactory(("FeedServer:MaxMessageSizeBytes", "5"));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}", "secret"), HttpStatusCode.OK);
+
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Post, $"/{feedId}", "wrong", Text("123456")),
+            HttpStatusCode.Unauthorized);
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Post, $"/{feedId}", null, Text("123456")),
+            HttpStatusCode.Unauthorized);
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Post, $"/{feedId}", "secret", Text("123456")),
+            HttpStatusCode.RequestEntityTooLarge);
+    }
+
+    [Fact]
+    public async Task OversizedPostToOpenFeed_RejectsAuthorizationBeforePayloadLimit()
+    {
+        using var factory = CreateFactory(("FeedServer:MaxMessageSizeBytes", "5"));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+
+        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
+
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Post, $"/{feedId}", "key", Text("123456")),
+            HttpStatusCode.Forbidden);
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Post, $"/{feedId}", null, Text("123456")),
+            HttpStatusCode.RequestEntityTooLarge);
+    }
+
+    [Fact]
     public async Task PostedBody_IsDeliveredWithOriginalContentType()
     {
         using var factory = CreateFactory();

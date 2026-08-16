@@ -73,6 +73,21 @@ public static class FeedEndpoints
             return BadRequest("Bad feed route", problem);
         }
 
+        if (!FeedAuthorizationKey.TryRead(request, out var key, out var authorizationProblem))
+        {
+            logger.LogWarning("Rejected invalid authorization for feed {FeedId}: {Problem}", feedId, authorizationProblem);
+            return AccessFailure(FeedAccessResult.Failure(
+                StatusCodes.Status401Unauthorized,
+                "Invalid authorization",
+                authorizationProblem));
+        }
+
+        var existingAccess = feedStore.AuthorizeExisting(feedId, key);
+        if (existingAccess is not null && !existingAccess.Succeeded)
+        {
+            return AccessFailure(existingAccess);
+        }
+
         if (request.ContentLength > options.Value.MaxMessageSizeBytes)
         {
             logger.LogWarning(
@@ -81,15 +96,6 @@ public static class FeedEndpoints
                 request.ContentLength,
                 options.Value.MaxMessageSizeBytes);
             return PayloadTooLarge(options.Value);
-        }
-
-        if (!FeedAuthorizationKey.TryRead(request, out var key, out var authorizationProblem))
-        {
-            logger.LogWarning("Rejected invalid authorization for feed {FeedId}: {Problem}", feedId, authorizationProblem);
-            return AccessFailure(FeedAccessResult.Failure(
-                StatusCodes.Status401Unauthorized,
-                "Invalid authorization",
-                authorizationProblem));
         }
 
         byte[] body;
