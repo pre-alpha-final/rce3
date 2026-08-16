@@ -90,15 +90,17 @@ Implementation detail: `FeedAuthorizationKey` hashes the raw UTF-8 authorization
 
 ## Examples Guidance
 
-When adding or changing examples under `src/Examples`, make protected-feed examples secure by default:
+When adding or changing examples under `src/Examples`, make protected-feed examples secure by default and easy to point at a known feed:
 
 - At startup or argument parsing time, read the auth key from the environment variable `RCE3_AUTH`.
 - Use `RCE3_AUTH` as the default `Authorization` value when it is set.
-- Allow an explicit later option, flag, config value, or command-line argument to override that default.
+- At startup or argument parsing time, read the default feed URL from the environment variable `RCE3_FEED_URL`.
+- Use `RCE3_FEED_URL` as the default feed URL when it is set.
+- Allow explicit later options, flags, config values, or command-line arguments to override these defaults.
 - If neither `RCE3_AUTH` nor an explicit override is supplied, examples may demonstrate open-feed behavior only when that is clearly intentional.
 - Do not hard-code real keys in examples, tests, docs, or scripts.
 
-This convention lets local examples run as protected feeds by default without requiring users to paste secrets into source files.
+This convention lets local examples run against a known protected feed by default without requiring users to paste secrets or feed URLs into source files.
 
 ## Testing Expectations
 
@@ -116,7 +118,7 @@ Add or update tests when changing:
 - Request body size handling.
 - Reader queue overflow behavior.
 - Feed TTL or cleanup behavior.
-- Example code that depends on `RCE3_AUTH` defaults or overrides.
+- Example code that depends on `RCE3_AUTH` or `RCE3_FEED_URL` defaults or overrides.
 
 Use short test timeouts through in-memory configuration overrides, as existing endpoint tests do with `FeedServer:PollTimeout`.
 
