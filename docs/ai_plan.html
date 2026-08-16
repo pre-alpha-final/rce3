@@ -334,9 +334,9 @@
           </tr>
           <tr>
             <td data-label="Endpoint"><code>GET /{feedGuid}/{readerGuid}/reset</code></td>
-            <td data-label="Purpose">Clear a reader queue and make it usable again after overflow.</td>
+            <td data-label="Purpose">Clear a reader queue, make it usable again after overflow, and redirect to it.</td>
             <td data-label="Request">Auth must match the feed mode exactly.</td>
-            <td data-label="Response">Return an empty success response.</td>
+            <td data-label="Response">Redirect to <code>GET /{feedGuid}/{readerGuid}</code>.</td>
           </tr>
         </tbody>
       </table>
@@ -372,7 +372,7 @@
         <li><code>GET /{feedGuid}/{readerGuid}</code> creates a reader queue.</li>
         <li>Each message posted to a feed is appended to every active reader queue for that feed.</li>
         <li>Readers receive their own posted messages because the system has no sender identity.</li>
-        <li><code>GET /{feedGuid}/{readerGuid}/reset</code> clears a reader queue and fixes it if it was marked unusable.</li>
+        <li><code>GET /{feedGuid}/{readerGuid}/reset</code> clears a reader queue, fixes it if it was marked unusable, and redirects to it.</li>
         <li>Readers are deleted when their parent feed is deleted.</li>
       </ol>
     </section>

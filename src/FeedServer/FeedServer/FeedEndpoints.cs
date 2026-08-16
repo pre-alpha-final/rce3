@@ -212,7 +212,7 @@ public static class FeedEndpoints
 
         access.Feed!.EnsureReader(readerId).Reset();
         logger.LogInformation("Reset reader {ReaderId} for feed {FeedId}.", readerId, feedId);
-        return Results.NoContent();
+        return Results.Redirect($"/{feedId:D}/{readerId:D}");
     }
 
     private static IResult BadPath(HttpRequest request, ILogger<Program> logger)

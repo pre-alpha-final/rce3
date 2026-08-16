@@ -73,7 +73,7 @@ public class FeedEndpointTests
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", null), HttpStatusCode.Unauthorized);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "wrong"), HttpStatusCode.Unauthorized);
 
-        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "secret"), HttpStatusCode.NoContent);
+        await AssertRedirectAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "secret"), $"/{feedId:D}/{readerId:D}");
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}", "secret"), HttpStatusCode.NoContent);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}", "secret", Text("body")), HttpStatusCode.OK);
         Assert.Equal("body", await ReadStringAsync(client, feedId, readerId, "secret"));
@@ -204,7 +204,7 @@ public class FeedEndpointTests
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.NoContent);
         await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("before-reset")), HttpStatusCode.OK);
 
-        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), HttpStatusCode.NoContent);
+        await AssertRedirectAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), $"/{feedId:D}/{readerId:D}");
 
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.NoContent);
         await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("after-reset")), HttpStatusCode.OK);
@@ -226,7 +226,7 @@ public class FeedEndpointTests
         await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("second")), HttpStatusCode.OK);
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.InternalServerError);
 
-        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), HttpStatusCode.NoContent);
+        await AssertRedirectAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), $"/{feedId:D}/{readerId:D}");
 
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.NoContent);
         await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("third")), HttpStatusCode.OK);
@@ -269,6 +269,13 @@ public class FeedEndpointTests
     {
         using var response = await responseTask;
         Assert.Equal(expected, response.StatusCode);
+    }
+
+    private static async Task AssertRedirectAsync(Task<HttpResponseMessage> responseTask, string expectedLocation)
+    {
+        using var response = await responseTask;
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal(expectedLocation, response.Headers.Location?.OriginalString);
     }
 
     private static Task<string> ReadStringAsync(HttpClient client, Guid feedId, Guid readerId)

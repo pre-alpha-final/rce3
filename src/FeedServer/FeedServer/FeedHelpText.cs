@@ -26,7 +26,7 @@ public static class FeedHelpText
             $"       Long-poll one message for this reader, or return empty after {options.PollTimeout}.",
             $"       Reader queues become unusable after exceeding {options.MaxQueuedMessagesPerReader} queued messages.",
             "  GET  /{FeedId}/{ReaderId}/reset",
-            "       Clear this reader queue and make it usable again.",
+            "       Clear this reader queue, make it usable again, and redirect to it.",
             string.Empty,
             "IDs:",
             "  FeedId and ReaderId must be valid UUIDs.",

@@ -10,7 +10,7 @@ GET  /{feedGuid}                Create or touch a feed and return help.
 POST /{feedGuid}                Publish the raw request body to all readers.
 GET  /{feedGuid}/{readerGuid}   Long-poll one queued message for one reader.
 GET  /{feedGuid}/{readerGuid}/reset
-                                Clear one reader queue and make it usable again.
+                                Clear one reader queue, make it usable again, and redirect to it.
 ```
 
 Feed and reader IDs must be valid GUIDs. A missing feed is created by the first valid request.
