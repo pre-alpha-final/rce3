@@ -9,6 +9,8 @@ GET  /                         Create a random feed and redirect to it.
 GET  /{feedGuid}                Create or touch a feed and return help.
 POST /{feedGuid}                Publish the raw request body to all readers.
 GET  /{feedGuid}/{readerGuid}   Long-poll one queued message for one reader.
+GET  /{feedGuid}/{readerGuid}/reset
+                                Clear one reader queue and make it usable again.
 ```
 
 Feed and reader IDs must be valid GUIDs. A missing feed is created by the first valid request.
@@ -33,6 +35,7 @@ READER_ID=0576e9fc-75d5-4620-9d72-a7ff33d859de
 curl http://localhost:5137/$FEED_ID
 curl -X POST http://localhost:5137/$FEED_ID --data-binary 'hello feed' -H 'Content-Type: text/plain'
 curl http://localhost:5137/$FEED_ID/$READER_ID
+curl http://localhost:5137/$FEED_ID/$READER_ID/reset
 ```
 
 ### Protected feed
@@ -45,6 +48,7 @@ KEY='test-feed-key'
 curl http://localhost:5137/$FEED_ID -H "Authorization: $KEY"
 curl -X POST http://localhost:5137/$FEED_ID -H "Authorization: $KEY" --data-binary 'secret hello'
 curl http://localhost:5137/$FEED_ID/$READER_ID -H "Authorization: $KEY"
+curl http://localhost:5137/$FEED_ID/$READER_ID/reset -H "Authorization: $KEY"
 ```
 
 ## License

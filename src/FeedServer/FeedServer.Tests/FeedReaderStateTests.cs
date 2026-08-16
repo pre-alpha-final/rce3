@@ -67,6 +67,38 @@ public class FeedReaderStateTests
     }
 
     [Fact]
+    public async Task Reset_CompletesPendingReadAndUsesFreshQueue()
+    {
+        var reader = new FeedReaderState(maxQueuedMessages: 10);
+
+        var readTask = reader.ReadAsync(TimeSpan.FromSeconds(30), CancellationToken.None).AsTask();
+
+        reader.Reset();
+
+        Assert.Null(await readTask.WaitAsync(TimeSpan.FromSeconds(2)));
+        var message = Message("after-reset");
+        Assert.True(reader.Enqueue(message));
+        Assert.Same(message, await reader.ReadAsync(TimeSpan.FromSeconds(30), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Reset_MakesUnusableReaderUsableAgain()
+    {
+        var reader = new FeedReaderState(maxQueuedMessages: 1);
+
+        Assert.True(reader.Enqueue(Message("first")));
+        Assert.False(reader.Enqueue(Message("second")));
+        Assert.True(reader.IsUnusable);
+
+        reader.Reset();
+
+        Assert.False(reader.IsUnusable);
+        var message = Message("third");
+        Assert.True(reader.Enqueue(message));
+        Assert.Same(message, await reader.ReadAsync(TimeSpan.FromSeconds(30), CancellationToken.None));
+    }
+
+    [Fact]
     public void TryBeginExpiration_ReturnsFalseWhenFeedWasRecentlyTouched()
     {
         var createdAt = DateTimeOffset.Parse("2026-08-14T00:00:00Z");

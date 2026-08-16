@@ -32,7 +32,9 @@ public class FeedEndpointTests
 
         await AssertStatusAsync(client.GetAsync("/not-a-guid"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.GetAsync($"/{feedId}/not-a-guid"), HttpStatusCode.BadRequest);
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/not-a-guid/reset"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/extra"), HttpStatusCode.BadRequest);
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/reset/extra"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.DeleteAsync($"/{feedId}"), HttpStatusCode.BadRequest);
     }
 
@@ -49,6 +51,7 @@ public class FeedEndpointTests
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}", "open-key"), HttpStatusCode.Forbidden);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}", "open-key", Text("body")), HttpStatusCode.Forbidden);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}", "open-key"), HttpStatusCode.Forbidden);
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "open-key"), HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -67,7 +70,10 @@ public class FeedEndpointTests
         await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}", "wrong", Text("body")), HttpStatusCode.Unauthorized);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}", null), HttpStatusCode.Unauthorized);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}", "wrong"), HttpStatusCode.Unauthorized);
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", null), HttpStatusCode.Unauthorized);
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "wrong"), HttpStatusCode.Unauthorized);
 
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "secret"), HttpStatusCode.NoContent);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}", "secret"), HttpStatusCode.NoContent);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}", "secret", Text("body")), HttpStatusCode.OK);
         Assert.Equal("body", await ReadStringAsync(client, feedId, readerId, "secret"));
@@ -185,6 +191,46 @@ public class FeedEndpointTests
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         var problem = await response.Content.ReadAsStringAsync();
         Assert.Contains("Reader queue exceeded", problem, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResetReader_ClearsQueuedMessages()
+    {
+        using var factory = CreateFactory(("FeedServer:PollTimeout", "00:00:00.010"));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+        var readerId = Guid.NewGuid();
+
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.NoContent);
+        await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("before-reset")), HttpStatusCode.OK);
+
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), HttpStatusCode.NoContent);
+
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.NoContent);
+        await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("after-reset")), HttpStatusCode.OK);
+        Assert.Equal("after-reset", await ReadStringAsync(client, feedId, readerId));
+    }
+
+    [Fact]
+    public async Task ResetReader_MakesUnusableQueueUsableAgain()
+    {
+        using var factory = CreateFactory(
+            ("FeedServer:PollTimeout", "00:00:00.010"),
+            ("FeedServer:MaxQueuedMessagesPerReader", "1"));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+        var readerId = Guid.NewGuid();
+
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.NoContent);
+        await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("first")), HttpStatusCode.OK);
+        await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("second")), HttpStatusCode.OK);
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.InternalServerError);
+
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), HttpStatusCode.NoContent);
+
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.NoContent);
+        await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("third")), HttpStatusCode.OK);
+        Assert.Equal("third", await ReadStringAsync(client, feedId, readerId));
     }
 
     private static WebApplicationFactory<Program> CreateFactory(params (string Key, string Value)[] overrides)

@@ -117,51 +117,78 @@ public sealed record FeedMessage(byte[] Body, string? ContentType);
 
 public sealed class FeedReaderState
 {
-    private readonly Channel<FeedMessage> messages;
+    private readonly Lock stateLock = new();
+    private readonly int maxQueuedMessages;
+    private Channel<FeedMessage> messages;
+    private int resetGeneration;
     private int unusable;
 
     public FeedReaderState(int maxQueuedMessages)
     {
-        messages = Channel.CreateBounded<FeedMessage>(
-            new BoundedChannelOptions(maxQueuedMessages)
-            {
-                FullMode = BoundedChannelFullMode.Wait,
-                SingleReader = false,
-                SingleWriter = false
-            });
+        this.maxQueuedMessages = maxQueuedMessages;
+        messages = CreateChannel(maxQueuedMessages);
     }
 
     public bool IsUnusable => Volatile.Read(ref unusable) == 1;
 
     public bool Enqueue(FeedMessage message)
     {
-        if (IsUnusable)
+        lock (stateLock)
         {
+            if (IsUnusable)
+            {
+                return false;
+            }
+
+            if (messages.Writer.TryWrite(message))
+            {
+                return true;
+            }
+
+            MarkUnusable();
             return false;
         }
-
-        if (messages.Writer.TryWrite(message))
-        {
-            return true;
-        }
-
-        MarkUnusable();
-        return false;
     }
 
     public void Complete()
     {
-        messages.Writer.TryComplete();
+        lock (stateLock)
+        {
+            messages.Writer.TryComplete();
+        }
+    }
+
+    public void Reset()
+    {
+        Channel<FeedMessage> previousMessages;
+        lock (stateLock)
+        {
+            previousMessages = messages;
+            messages = CreateChannel(maxQueuedMessages);
+            Volatile.Write(ref unusable, 0);
+            resetGeneration++;
+        }
+
+        previousMessages.Writer.TryComplete();
     }
 
     public async ValueTask<FeedMessage?> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
+        Channel<FeedMessage> currentMessages;
+        int currentResetGeneration;
+        lock (stateLock)
+        {
+            currentMessages = messages;
+            currentResetGeneration = resetGeneration;
+        }
+
         using var timeoutCts = new CancellationTokenSource(timeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
         try
         {
-            return await messages.Reader.ReadAsync(linkedCts.Token);
+            var message = await currentMessages.Reader.ReadAsync(linkedCts.Token);
+            return currentResetGeneration == Volatile.Read(ref resetGeneration) ? message : null;
         }
         catch (ChannelClosedException)
         {
@@ -179,5 +206,16 @@ public sealed class FeedReaderState
         {
             messages.Writer.TryComplete();
         }
+    }
+
+    private static Channel<FeedMessage> CreateChannel(int maxQueuedMessages)
+    {
+        return Channel.CreateBounded<FeedMessage>(
+            new BoundedChannelOptions(maxQueuedMessages)
+            {
+                FullMode = BoundedChannelFullMode.Wait,
+                SingleReader = false,
+                SingleWriter = false
+            });
     }
 }

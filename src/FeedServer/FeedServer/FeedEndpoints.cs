@@ -22,6 +22,7 @@ public static class FeedEndpoints
         app.MapGet("/{feedGuid}", GetFeed);
         app.MapPost("/{feedGuid}", PostFeed);
         app.MapGet("/{feedGuid}/{readerGuid}", GetReader);
+        app.MapGet("/{feedGuid}/{readerGuid}/reset", ResetReader);
         app.MapMethods("/{*path}", SupportedMethods, BadPath);
     }
 
@@ -185,12 +186,41 @@ public static class FeedEndpoints
         return Results.Bytes(message.Body, message.ContentType ?? "application/octet-stream");
     }
 
+    private static IResult ResetReader(
+        string feedGuid,
+        string readerGuid,
+        HttpRequest request,
+        FeedStore feedStore,
+        ILogger<Program> logger)
+    {
+        var route = FeedRouteParser.TryParseReader(feedGuid, readerGuid, out var feedId, out var readerId, out var problem);
+        if (!route)
+        {
+            logger.LogWarning(
+                "Rejected malformed reader reset route {FeedGuid}/{ReaderGuid}: {Problem}",
+                feedGuid,
+                readerGuid,
+                problem);
+            return BadRequest("Bad reader reset route", problem);
+        }
+
+        var access = GetFeedAccess(request, feedStore, feedId, logger);
+        if (!access.Succeeded)
+        {
+            return AccessFailure(access);
+        }
+
+        access.Feed!.EnsureReader(readerId).Reset();
+        logger.LogInformation("Reset reader {ReaderId} for feed {FeedId}.", readerId, feedId);
+        return Results.NoContent();
+    }
+
     private static IResult BadPath(HttpRequest request, ILogger<Program> logger)
     {
         logger.LogWarning("Rejected unsupported feed path {Path}.", request.Path);
         return BadRequest(
             "Bad feed path",
-            $"'{request.Path}' does not match GET /{{feedGuid}}, POST /{{feedGuid}}, or GET /{{feedGuid}}/{{readerGuid}}.");
+            $"'{request.Path}' does not match GET /{{feedGuid}}, POST /{{feedGuid}}, GET /{{feedGuid}}/{{readerGuid}}, or GET /{{feedGuid}}/{{readerGuid}}/reset.");
     }
 
     private static IResult BadRequest(string title, string detail)
@@ -222,7 +252,7 @@ public static class FeedEndpoints
     {
         return Results.Problem(
             title: "Reader queue unusable",
-            detail: $"This reader queue exceeded the configured limit of {options.MaxQueuedMessagesPerReader} queued messages and will remain unusable until the feed is deleted.",
+            detail: $"This reader queue exceeded the configured limit of {options.MaxQueuedMessagesPerReader} queued messages and will remain unusable until it is reset.",
             statusCode: StatusCodes.Status500InternalServerError);
     }
 

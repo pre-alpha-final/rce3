@@ -282,7 +282,7 @@
       <h2>Scope</h2>
       <h3>In Scope</h3>
       <ul>
-        <li>HTTP endpoints for feed help, posting messages, and long-polling reader queues.</li>
+        <li>HTTP endpoints for feed help, posting messages, long-polling reader queues, and resetting reader queues.</li>
         <li>Implicit feed creation on first valid request.</li>
         <li>Feed mode selection at creation: open or Authorization-key protected.</li>
         <li>Pass-through message bodies with minimal server interpretation.</li>
@@ -332,6 +332,12 @@
             <td data-label="Request">Auth must match the feed mode exactly.</td>
             <td data-label="Response">Return one queued message at a time using the original message <code>Content-Type</code>, or return an empty timeout response after 30 seconds.</td>
           </tr>
+          <tr>
+            <td data-label="Endpoint"><code>GET /{feedGuid}/{readerGuid}/reset</code></td>
+            <td data-label="Purpose">Clear a reader queue and make it usable again after overflow.</td>
+            <td data-label="Request">Auth must match the feed mode exactly.</td>
+            <td data-label="Response">Return an empty success response.</td>
+          </tr>
         </tbody>
       </table>
 
@@ -343,7 +349,7 @@
         <li><code>401 Unauthorized</code> when a protected feed is accessed without the correct Authorization key.</li>
         <li><code>403 Forbidden</code> when an open feed is accessed with an Authorization key, because protected access to an open feed is explicitly invalid.</li>
         <li><code>413 Payload Too Large</code> when a message exceeds the configured maximum body size.</li>
-        <li><code>500 Internal Server Error</code> when a reader queue has exceeded its configured size limit and has become unusable.</li>
+        <li><code>500 Internal Server Error</code> when a reader queue has exceeded its configured size limit and has become unusable until reset.</li>
       </ul>
     </section>
 
@@ -366,6 +372,7 @@
         <li><code>GET /{feedGuid}/{readerGuid}</code> creates a reader queue.</li>
         <li>Each message posted to a feed is appended to every active reader queue for that feed.</li>
         <li>Readers receive their own posted messages because the system has no sender identity.</li>
+        <li><code>GET /{feedGuid}/{readerGuid}/reset</code> clears a reader queue and fixes it if it was marked unusable.</li>
         <li>Readers are deleted when their parent feed is deleted.</li>
       </ol>
     </section>
@@ -397,7 +404,7 @@
             <li>Create reader queues on first reader request.</li>
             <li>Queue messages independently for each reader.</li>
             <li>Define queue backpressure limits so inactive readers cannot exhaust memory.</li>
-            <li>Mark a reader unusable when its queue exceeds the configured limit; future reads return <code>500</code> with an appropriate description until the feed is deleted.</li>
+            <li>Mark a reader unusable when its queue exceeds the configured limit; future reads return <code>500</code> with an appropriate description until the reader queue is reset.</li>
           </ul>
         </div>
         <div class="card">

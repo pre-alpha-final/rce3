@@ -8,6 +8,7 @@ Address structure:
 GET /feed-guid - displays bare bones help on how to integrate to the system
 POST /feed-guid - posts to the feed. the body will be send to every active reader of the feed.
 GET /feed-guid/reader-guid - long pooling to get the feed. returns after 30 seconds with no messages, or at once when something comes to the feed.
+GET /feed-guid/reader-guid/reset - clears the reader queue and makes it usable again if it overflowed.
 
 Feed lifecycle:
 1. A request is made for a feed. If it doesn't exist it is created.
@@ -25,4 +26,5 @@ GET /feed-guid/reader-guid
 is made, a messge queue with reader-guid is created.
 2. When a message comes into the feed, it is distributed to all readers subscribed to the feed.
 3. Since there is no identity of senders and receivers, you will receive your own messages. This is fine.
-4. Readers are deleted when the feed is deleted.
+4. GET /feed-guid/reader-guid/reset clears a reader's queued messages and fixes an unusable reader queue.
+5. Readers are deleted when the feed is deleted.
