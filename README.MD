@@ -39,6 +39,18 @@ The first valid request fixes a feed's access mode until that feed expires:
 
 An overflow makes that reader unusable and its queued messages unavailable. It does not affect other readers. The overflow-causing message is not accepted by that reader.
 
+## Debug console client
+
+`src/Examples/Debug` contains a small bidirectional console client. It creates a fresh reader before publishing, posts each line from stdin as one UTF-8 `text/plain` message, and writes every received message to stdout. Diagnostics go to stderr, so stdout can be redirected or piped.
+
+```powershell
+$env:RCE3_FEED_URL = "http://localhost:5137/11111111-1111-1111-1111-111111111111"
+$env:RCE3_AUTH = "optional raw Authorization value"
+dotnet run --project src\Examples\Debug\Debug\Debug.csproj
+```
+
+The feed URL can instead be passed as a positional argument or with `--feed`. Use `--auth` to override `RCE3_AUTH`, or `--no-auth` to connect to an open feed when that environment variable is set. Press Ctrl+C to disconnect. If stdin closes, publishing stops and the app keeps receiving until canceled.
+
 ## License
 
 MIT
