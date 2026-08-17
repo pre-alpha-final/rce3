@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Mudslide/Mudslide.csproj" />
+  <Project Path="Mudslide.Tests/Mudslide.Tests.csproj" />
+</Solution>
