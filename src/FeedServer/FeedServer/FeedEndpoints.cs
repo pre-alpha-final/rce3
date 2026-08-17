@@ -21,6 +21,7 @@ public static class FeedEndpoints
         app.MapGet("/", CreateFeed);
         app.MapGet("/{feedGuid}", GetFeed);
         app.MapPost("/{feedGuid}", PostFeed);
+        app.MapGet("/{feedGuid}/admin", GetAdmin);
         app.MapGet("/{feedGuid}/{readerGuid}", GetReader);
         app.MapGet("/{feedGuid}/{readerGuid}/reset", ResetReader);
         app.MapMethods("/{*path}", SupportedMethods, BadPath);
@@ -140,6 +141,23 @@ public static class FeedEndpoints
         return Results.Text($"Message distributed to {readerCount} reader(s).", "text/plain");
     }
 
+    private static IResult GetAdmin(
+        string feedGuid,
+        HttpResponse response,
+        ILogger<Program> logger)
+    {
+        if (!FeedRouteParser.TryParseFeed(feedGuid, out var feedId, out var problem))
+        {
+            FeedServerLog.MalformedFeedRoute(logger, feedGuid, problem);
+            return BadRequest("Bad feed route", problem);
+        }
+
+        response.Headers.CacheControl = "no-store";
+        return Results.Content(
+            FeedAdminPage.Create(feedId, Guid.NewGuid()),
+            "text/html; charset=utf-8");
+    }
+
     private static async Task<IResult> GetReader(
         string feedGuid,
         string readerGuid,
@@ -226,7 +244,7 @@ public static class FeedEndpoints
         FeedServerLog.UnsupportedFeedPath(logger, request.Path);
         return BadRequest(
             "Bad feed path",
-            $"'{request.Path}' does not match GET /{{feedGuid}}, POST /{{feedGuid}}, GET /{{feedGuid}}/{{readerGuid}}, or GET /{{feedGuid}}/{{readerGuid}}/reset.");
+            $"'{request.Path}' does not match GET /{{feedGuid}}, POST /{{feedGuid}}, GET /{{feedGuid}}/admin, GET /{{feedGuid}}/{{readerGuid}}, or GET /{{feedGuid}}/{{readerGuid}}/reset.");
     }
 
     private static IResult BadRequest(string title, string detail)

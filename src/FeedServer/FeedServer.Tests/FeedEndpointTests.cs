@@ -52,12 +52,73 @@ public class FeedEndpointTests
         var readerId = Guid.NewGuid();
 
         await AssertStatusAsync(client.GetAsync("/not-a-guid"), HttpStatusCode.BadRequest);
+        await AssertStatusAsync(client.GetAsync("/not-a-guid/admin"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.GetAsync($"/{feedId}/not-a-guid"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.GetAsync($"/{feedId}/not-a-guid/reset"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/extra"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/reset/extra"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.DeleteAsync($"/{feedId}"), HttpStatusCode.BadRequest);
+        await AssertStatusAsync(client.PostAsync($"/{feedId}/admin", Text("body")), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.GetAsync("/openapi/v1.json"), HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task FeedAdmin_ReturnsUncachedHtmlWithCanonicalIds()
+    {
+        using var factory = CreateFactory();
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+
+        using var firstResponse = await client.GetAsync($"/{feedId:N}/admin");
+        using var secondResponse = await client.GetAsync($"/{feedId:N}/admin");
+        var firstHtml = await firstResponse.Content.ReadAsStringAsync();
+        var secondHtml = await secondResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal("text/html; charset=utf-8", firstResponse.Content.Headers.ContentType?.ToString());
+        Assert.True(firstResponse.Headers.CacheControl?.NoStore);
+        Assert.Contains($"data-feed-id=\"{feedId:D}\"", firstHtml, StringComparison.Ordinal);
+        Assert.Contains("RCE3 feed admin", firstHtml, StringComparison.Ordinal);
+        Assert.Contains("Authorization value", firstHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("__FEED_ID__", firstHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("__READER_ID__", firstHtml, StringComparison.Ordinal);
+        Assert.NotEqual(firstHtml, secondHtml);
+    }
+
+    [Fact]
+    public async Task FeedAdmin_DoesNotCreateFeedOrReadAuthorization()
+    {
+        using var factory = CreateFactory();
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Get, $"/{feedId}/admin", "ignored-key"),
+            HttpStatusCode.OK);
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Get, $"/{feedId}", "protected-key"),
+            HttpStatusCode.OK);
+        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.Unauthorized);
+
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/admin"), HttpStatusCode.OK);
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Get, $"/{feedId}/admin", "wrong-key"),
+            HttpStatusCode.OK);
+
+        using var invalidAuthorizationRequest = new HttpRequestMessage(HttpMethod.Get, $"/{feedId}/admin");
+        invalidAuthorizationRequest.Headers.TryAddWithoutValidation("Authorization", ["first", "second"]);
+        using var invalidAuthorizationResponse = await client.SendAsync(invalidAuthorizationRequest);
+        Assert.Equal(HttpStatusCode.OK, invalidAuthorizationResponse.StatusCode);
+
+        var openFeedId = Guid.NewGuid();
+        await AssertStatusAsync(client.GetAsync($"/{openFeedId}"), HttpStatusCode.OK);
+        var store = (FeedStore)factory.Services.GetService(typeof(FeedStore))!;
+        var activityBeforeAdmin = store.AuthorizeExisting(openFeedId, key: null)!.Feed!.LastActivityAt;
+
+        await AssertStatusAsync(client.GetAsync($"/{openFeedId}/admin"), HttpStatusCode.OK);
+
+        var activityAfterAdmin = store.AuthorizeExisting(openFeedId, key: null)!.Feed!.LastActivityAt;
+        Assert.Equal(activityBeforeAdmin, activityAfterAdmin);
     }
 
     [Fact]
@@ -147,6 +208,7 @@ public class FeedEndpointTests
         Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
         Assert.Contains($"FeedId: {feedId:D}", help, StringComparison.Ordinal);
         Assert.Contains("Mode: protected", help, StringComparison.Ordinal);
+        Assert.Contains("GET  /{FeedId}/admin", help, StringComparison.Ordinal);
         Assert.Contains("Max body: 123 bytes", help, StringComparison.Ordinal);
         Assert.Contains("after 00:00:03", help, StringComparison.Ordinal);
         Assert.Contains("exceeding 7 queued messages", help, StringComparison.Ordinal);

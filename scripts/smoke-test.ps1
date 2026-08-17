@@ -32,6 +32,24 @@ function Assert-Redirect {
     }
 }
 
+function Assert-AdminPage {
+    param(
+        [System.Net.Http.HttpResponseMessage]$Response,
+        [Guid]$FeedId,
+        [string]$Label
+    )
+
+    Assert-Status $Response ([System.Net.HttpStatusCode]::OK) $Label
+    if ($Response.Content.Headers.ContentType.MediaType -ne "text/html") {
+        throw "$Label expected text/html but got '$($Response.Content.Headers.ContentType)'"
+    }
+
+    $body = $Response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    if (!$body.Contains("data-feed-id=`"$FeedId`"")) {
+        throw "$Label did not contain the canonical feed ID"
+    }
+}
+
 function New-Request {
     param(
         [System.Net.Http.HttpMethod]$Method,
@@ -71,6 +89,9 @@ try {
     $response = $client.GetAsync($openFeedUrl).GetAwaiter().GetResult()
     Assert-Status $response ([System.Net.HttpStatusCode]::OK) "open feed help"
 
+    $response = $client.GetAsync("$openFeedUrl/admin").GetAwaiter().GetResult()
+    Assert-AdminPage $response $openFeedId "open feed admin page"
+
     $readerTask = $client.GetAsync($openReaderUrl)
     $content = [System.Net.Http.StringContent]::new("open-smoke", [System.Text.Encoding]::UTF8, "text/plain")
     $response = $client.PostAsync($openFeedUrl, $content).GetAwaiter().GetResult()
@@ -97,6 +118,9 @@ try {
 
     $response = $client.SendAsync((New-Request ([System.Net.Http.HttpMethod]::Get) $protectedFeedUrl $key $null)).GetAwaiter().GetResult()
     Assert-Status $response ([System.Net.HttpStatusCode]::OK) "protected feed help"
+
+    $response = $client.GetAsync("$protectedFeedUrl/admin").GetAwaiter().GetResult()
+    Assert-AdminPage $response $protectedFeedId "protected feed public admin page"
 
     $readerTask = $client.SendAsync((New-Request ([System.Net.Http.HttpMethod]::Get) $protectedReaderUrl $key $null))
     $content = [System.Net.Http.StringContent]::new("protected-smoke", [System.Text.Encoding]::UTF8, "text/plain")

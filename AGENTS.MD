@@ -11,6 +11,7 @@ The public API is exactly:
 - `GET /` creates a random feed and returns a `302` redirect to it.
 - `GET /{feedGuid}` creates or touches a feed and returns plain-text help.
 - `POST /{feedGuid}` publishes the raw body to all current readers.
+- `GET /{feedGuid}/admin` returns a public browser debug client without creating or touching a feed.
 - `GET /{feedGuid}/{readerGuid}` creates or touches a reader and long-polls one queued message.
 - `GET /{feedGuid}/{readerGuid}/reset` creates or resets a reader and redirects to its canonical URL.
 
@@ -71,7 +72,7 @@ Keep Kestrel's request-body limit and `FeedRequestBodyReader`'s streaming limit 
 
 ## Authorization contract
 
-The first valid request fixes a feed's mode for that feed's lifetime:
+The admin page ignores Authorization and never creates, touches, or accesses a feed. For feed-data routes, the first valid request fixes a feed's mode for that feed's lifetime:
 
 - No Authorization header creates an open feed.
 - Exactly one non-empty raw Authorization value creates a protected feed.
@@ -121,7 +122,7 @@ Because there is no sender identity, clients can receive their own posts. Do not
 
 ## HTTP behavior
 
-- Help, accepted POSTs, and message delivery return `200 OK`.
+- Help, the admin page, accepted POSTs, and message delivery return `200 OK`.
 - An empty long poll returns `204 No Content`.
 - Root creation and reader reset use `302 Found` with root-relative canonical locations.
 - Malformed documented routes return ASP.NET problem responses with `400 Bad Request`.
@@ -145,6 +146,7 @@ Keep the surface plain: text help, raw message responses, and standard problem d
 Add or update tests whenever changing:
 
 - Route shapes, redirects, status codes, help text, or response content types.
+- Admin page state neutrality, browser-client behavior, or safe text rendering.
 - Open/protected feed creation and every authorization failure case.
 - POST validation order or missing-feed creation behavior.
 - Fan-out, FIFO delivery, concurrent publishing, or queue overflow/reset behavior.
@@ -157,12 +159,7 @@ Use short in-memory `FeedServer:PollTimeout` overrides in endpoint tests. Use an
 
 ## Examples and secrets
 
-If examples are added under `src/Examples`, read these defaults during startup or argument parsing:
-
-- `RCE3_AUTH` for the Authorization value.
-- `RCE3_FEED_URL` for the feed URL.
-
-Explicit later options or command-line arguments may override them. Do not hard-code real keys in examples, tests, docs, or scripts.
+Do not hard-code real keys in examples, tests, docs, scripts, or the admin page. The browser debug client accepts a key only through its in-memory input and must never place it in URLs, browser storage, logs, or rendered output.
 
 ## PowerShell and release safety
 

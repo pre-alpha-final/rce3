@@ -9,6 +9,7 @@ After two somewhat successful attempts, it's time to drop all pretense of profes
 | `GET /` | Create a random feed and redirect to `/{feedGuid}`. |
 | `GET /{feedGuid}` | Create or touch a feed and return plain-text help. |
 | `POST /{feedGuid}` | Publish the raw request body to every current reader. |
+| `GET /{feedGuid}/admin` | Open a browser debug client without creating or touching the feed. |
 | `GET /{feedGuid}/{readerGuid}` | Create or touch a reader and return one queued message, or `204 No Content` after the poll timeout. |
 | `GET /{feedGuid}/{readerGuid}/reset` | Create or reset a reader, discard its queued messages, make it usable after overflow, and redirect to the reader URL. |
 
@@ -28,7 +29,7 @@ The first valid request fixes a feed's access mode until that feed expires:
 
 ## Responses and limits
 
-- `200 OK`: help, accepted POST, or delivery of one message.
+- `200 OK`: help, admin page, accepted POST, or delivery of one message.
 - `204 No Content`: long-poll timeout, cancellation, feed expiration, reset, or shutdown when no message was delivered.
 - `302 Found`: feed creation or reader reset redirect.
 - `400 Bad Request`: malformed GUID or path.
@@ -39,17 +40,13 @@ The first valid request fixes a feed's access mode until that feed expires:
 
 An overflow makes that reader unusable and its queued messages unavailable. It does not affect other readers. The overflow-causing message is not accepted by that reader.
 
-## Debug console client
+## Browser debug client
 
-`src/Examples/Debug` contains a small bidirectional console client. It creates a fresh reader before publishing, posts each line from stdin as one UTF-8 `text/plain` message, and writes every received message to stdout. Diagnostics go to stderr, so stdout can be redirected or piped.
+Open `/{feedGuid}/admin` in a browser to send and receive UTF-8 text messages through the existing feed API. The page gets a fresh reader ID when it is rendered; Connect creates or resets that reader before polling so it exists before any message is published from the page.
 
-```powershell
-$env:RCE3_FEED_URL = "http://localhost:5137/11111111-1111-1111-1111-111111111111"
-$env:RCE3_AUTH = "optional raw Authorization value"
-dotnet run --project src\Examples\Debug\Debug\Debug.csproj
-```
+The page itself is public and does not create, authorize, inspect, or touch the feed. For a protected feed, enter the raw Authorization value before connecting. The value stays in page memory and is sent only in the Authorization header of reset, polling, and publish requests. It is not read from `RCE3_AUTH`, saved in browser storage, or placed in the URL.
 
-The feed URL can instead be passed as a positional argument or with `--feed`. Use `--auth` to override `RCE3_AUTH`, or `--no-auth` to connect to an open feed when that environment variable is set. Press Ctrl+C to disconnect. If stdin closes, publishing stops and the app keeps receiving until canceled.
+This is a debug client, not a privileged administration or monitoring interface. It displays received bodies as text and does not expose server statistics.
 
 ## License
 

@@ -22,6 +22,8 @@ public static class FeedHelpText
             "       Create or touch the feed and return this help.",
             "  POST /{FeedId}",
             $"       Publish the raw request body to all readers. Max body: {options.MaxMessageSizeBytes} bytes.",
+            "  GET  /{FeedId}/admin",
+            "       Open the browser debug client without creating or touching the feed.",
             "  GET  /{FeedId}/{ReaderId}",
             $"       Long-poll one message for this reader, or return empty after {options.PollTimeout}.",
             $"       Reader queues become unusable after exceeding {options.MaxQueuedMessagesPerReader} queued messages.",

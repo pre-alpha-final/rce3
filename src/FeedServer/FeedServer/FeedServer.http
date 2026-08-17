@@ -12,6 +12,11 @@ GET {{FeedServer_HostAddress}}/
 GET {{FeedServer_HostAddress}}/{{OpenFeedGuid}}
 Accept: text/plain
 
+###
+
+GET {{FeedServer_HostAddress}}/{{OpenFeedGuid}}/admin
+Accept: text/html
+
 ### Create the reader before publishing; do not follow the redirect.
 
 GET {{FeedServer_HostAddress}}/{{OpenFeedGuid}}/{{OpenReaderGuid}}/reset
@@ -41,6 +46,11 @@ Accept: application/problem+json
 
 GET {{FeedServer_HostAddress}}/{{ProtectedFeedGuid}}/{{ProtectedReaderGuid}}/reset
 Authorization: {{Authorization}}
+
+###
+
+GET {{FeedServer_HostAddress}}/{{ProtectedFeedGuid}}/admin
+Accept: text/html
 
 ###
 
