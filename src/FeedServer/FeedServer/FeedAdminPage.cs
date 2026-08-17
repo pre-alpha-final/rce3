@@ -17,48 +17,64 @@ internal static class FeedAdminPage
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <link rel="icon" href="data:,">
           <title>RCE3 feed admin</title>
+          <link rel="stylesheet" href="https://bootswatch.com/5/sketchy/bootstrap.min.css">
           <style>
-            :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-            body { margin: 0 auto; max-width: 52rem; padding: 1.5rem; }
-            h1 { margin-bottom: .25rem; }
+            main { max-width: 58rem; }
             code { overflow-wrap: anywhere; }
-            label { display: block; font-weight: 600; margin-top: 1rem; }
-            input, textarea, button { box-sizing: border-box; font: inherit; }
-            input, textarea { margin-top: .35rem; padding: .55rem; width: 100%; }
-            textarea { min-height: 7rem; resize: vertical; }
-            button { cursor: pointer; margin: .75rem .5rem 0 0; padding: .5rem .9rem; }
-            button:disabled { cursor: default; }
-            #status { margin-top: 1rem; min-height: 1.5rem; }
-            #messages { border: 1px solid currentColor; min-height: 8rem; padding: .75rem; }
-            .message { border-bottom: 1px solid color-mix(in srgb, currentColor 25%, transparent); padding: .5rem 0; }
-            .message:last-child { border-bottom: 0; }
-            .message small { opacity: .7; }
-            .message pre { margin: .25rem 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+            #status { min-height: 1.5rem; }
+            #messages { min-height: 8rem; }
+            #messages:empty::before { content: "No messages yet."; color: var(--bs-secondary-color); }
+            .message pre {
+              margin: .25rem 0 0;
+              overflow-wrap: anywhere;
+              white-space: pre-wrap;
+            }
           </style>
         </head>
         <body data-feed-id="__FEED_ID__" data-reader-id="__READER_ID__">
-          <h1>RCE3 feed admin</h1>
-          <p>This is a debug client, not a privileged administration interface.</p>
-          <p>Feed: <code id="feed-id">__FEED_ID__</code></p>
+          <main class="container py-5">
+            <header class="mb-5 text-center">
+              <h1 class="display-2">RCE3 feed admin</h1>
+              <p class="lead">Send and receive plain text. No dashboards, secret controls, or grown-up supervision.</p>
+              <p><span class="badge border border-dark bg-light p-3 text-dark fs-6">Feed: <code id="feed-id">__FEED_ID__</code></span></p>
+            </header>
 
-          <label for="authorization">Authorization value</label>
-          <input id="authorization" type="password" autocomplete="off" spellcheck="false"
-                 placeholder="Leave empty for an open feed">
+            <section class="card border-dark mb-4" aria-labelledby="connection-heading">
+              <div class="card-body">
+                <h2 id="connection-heading" class="card-title">Connect a reader</h2>
+                <p class="card-text">This page is public. For a protected feed, enter its raw Authorization value before connecting.</p>
+                <label class="form-label" for="authorization">Authorization value</label>
+                <input id="authorization" class="form-control" type="password" autocomplete="off" spellcheck="false"
+                       placeholder="Leave empty for an open feed">
 
-          <div>
-            <button id="connect" type="button">Connect</button>
-            <button id="disconnect" type="button" disabled>Disconnect</button>
-          </div>
-          <p id="status" role="status" aria-live="polite">Disconnected.</p>
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                  <button id="connect" class="btn btn-primary" type="button">Connect</button>
+                  <button id="disconnect" class="btn btn-outline-secondary" type="button" disabled>Disconnect</button>
+                </div>
+                <p id="status" class="alert alert-warning mt-3 mb-0" role="status" aria-live="polite">Disconnected.</p>
+              </div>
+            </section>
 
-          <form id="send-form">
-            <label for="message">UTF-8 text message</label>
-            <textarea id="message" disabled></textarea>
-            <button id="send" type="submit" disabled>Send</button>
-          </form>
+            <section class="card border-dark mb-4" aria-labelledby="composer-heading">
+              <div class="card-body">
+                <form id="send-form">
+                  <h2 id="composer-heading" class="card-title">Publish a message</h2>
+                  <label class="form-label" for="message">UTF-8 text message</label>
+                  <textarea id="message" class="form-control" rows="5" disabled></textarea>
+                  <div class="mt-3">
+                    <button id="send" class="btn btn-primary" type="submit" disabled>Send</button>
+                  </div>
+                </form>
+              </div>
+            </section>
 
-          <h2>Received messages</h2>
-          <div id="messages" aria-live="polite"></div>
+            <section class="card border-dark mb-4" aria-labelledby="messages-heading">
+              <div class="card-body">
+                <h2 id="messages-heading" class="card-title">Received messages</h2>
+                <div id="messages" aria-live="polite"></div>
+              </div>
+            </section>
+          </main>
 
           <script>
             (() => {
@@ -94,8 +110,9 @@ internal static class FeedAdminPage
 
               function appendMessage(body) {
                 const item = document.createElement("div");
-                item.className = "message";
+                item.className = "message list-group-item";
                 const metadata = document.createElement("small");
+                metadata.className = "text-body-secondary";
                 metadata.textContent = `Received ${new Date().toLocaleTimeString()}`;
                 const content = document.createElement("pre");
                 content.textContent = body;
