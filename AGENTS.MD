@@ -9,7 +9,7 @@ Preserve that simplicity. Do not add schemas, envelopes, message types, sender o
 The public API is exactly:
 
 - `GET /` creates a random feed and returns a `302` redirect to it.
-- `GET /{feedGuid}` creates or touches a feed and returns plain-text help.
+- `GET /{feedGuid}` returns public plain-text help without creating, touching, or authorizing a feed.
 - `POST /{feedGuid}` publishes the raw body to all current readers.
 - `GET /{feedGuid}/admin` returns a public browser debug client without creating or touching a feed.
 - `GET /{feedGuid}/{readerGuid}` creates or touches a reader and long-polls one queued message.
@@ -96,7 +96,7 @@ This order prevents an unauthorized caller from learning protected-feed limits t
 
 - `FeedStore` owns feeds in a `ConcurrentDictionary<Guid, FeedState>`.
 - State is memory-only and is lost on restart.
-- Successful GET activity and accepted POST activity touch a feed; rejected requests do not.
+- Successful feed-data GET activity and accepted POST activity touch a feed; rejected requests and public help/admin GETs do not.
 - Activity time must never move backward when older concurrent requests finish after newer ones.
 - `AuthorizeExisting` is a preliminary POST check and intentionally does not touch the feed.
 - A feed is expired lazily during access and periodically by `FeedExpirationService`.

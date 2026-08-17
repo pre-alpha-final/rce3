@@ -104,7 +104,7 @@ try {
         throw "open feed read returned '$body'"
     }
 
-    $response = $client.SendAsync((New-Request ([System.Net.Http.HttpMethod]::Get) $openFeedUrl "wrong-place" $null)).GetAwaiter().GetResult()
+    $response = $client.SendAsync((New-Request ([System.Net.Http.HttpMethod]::Get) "$openReaderUrl/reset" "wrong-place" $null)).GetAwaiter().GetResult()
     Assert-Status $response ([System.Net.HttpStatusCode]::Forbidden) "open feed rejects authorization"
 
     $protectedFeedId = [Guid]::NewGuid()
@@ -134,7 +134,7 @@ try {
         throw "protected feed read returned '$body'"
     }
 
-    $response = $client.SendAsync((New-Request ([System.Net.Http.HttpMethod]::Get) $protectedFeedUrl "wrong-key" $null)).GetAwaiter().GetResult()
+    $response = $client.SendAsync((New-Request ([System.Net.Http.HttpMethod]::Get) "$protectedReaderUrl/reset" "wrong-key" $null)).GetAwaiter().GetResult()
     Assert-Status $response ([System.Net.HttpStatusCode]::Unauthorized) "protected feed rejects wrong key"
 
     Write-Host "Smoke test passed for $BaseUrl"
