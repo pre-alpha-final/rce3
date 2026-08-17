@@ -267,9 +267,9 @@ public static class FeedEndpoints
     private static IResult UnusableReader(FeedServerOptions options)
     {
         return Results.Problem(
-            title: "Reader queue unusable",
-            detail: $"This reader queue exceeded the configured limit of {options.MaxQueuedMessagesPerReader} queued messages and will remain unusable until it is reset.",
-            statusCode: StatusCodes.Status500InternalServerError);
+            title: "Reader queue overflowed",
+            detail: $"This reader queue exceeded the configured limit of {options.MaxQueuedMessagesPerReader} queued messages; reset is required before polling can resume.",
+            statusCode: StatusCodes.Status410Gone);
     }
 
     private static IResult PayloadTooLarge(FeedServerOptions options)

@@ -83,13 +83,13 @@ public class FeedListenerTests
     }
 
     [Fact]
-    public async Task InternalServerErrorResetsReaderAndResumesPolling()
+    public async Task GoneResetsReaderAndResumesPolling()
     {
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
             1 => Completed(Response(HttpStatusCode.Found)),
-            2 => Completed(Response(HttpStatusCode.InternalServerError)),
+            2 => Completed(Response(HttpStatusCode.Gone)),
             3 => Completed(Response(HttpStatusCode.Found)),
             _ => Cancel(cancellation, token)
         });
@@ -108,14 +108,14 @@ public class FeedListenerTests
     }
 
     [Fact]
-    public async Task TransientResetAndPollFailuresAreRetried()
+    public async Task TransientResetAndInternalServerFailuresAreRetried()
     {
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
             1 => Task.FromException<HttpResponseMessage>(new HttpRequestException("offline")),
             2 => Completed(Response(HttpStatusCode.Found)),
-            3 => Completed(Response(HttpStatusCode.ServiceUnavailable)),
+            3 => Completed(Response(HttpStatusCode.InternalServerError)),
             _ => Cancel(cancellation, token)
         });
         using var client = CreateClient(handler);
@@ -124,6 +124,7 @@ public class FeedListenerTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
         Assert.Equal(4, handler.Requests.Count);
+        Assert.False(handler.Requests[3].Uri.AbsolutePath.EndsWith("/reset", StringComparison.Ordinal));
     }
 
     [Fact]

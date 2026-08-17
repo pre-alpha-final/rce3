@@ -43,7 +43,7 @@ The first valid feed request fixes a feed's access mode until that feed expires:
 - `401 Unauthorized`: invalid Authorization header or failed protected-feed authorization.
 - `403 Forbidden`: an Authorization header was sent to an open feed.
 - `413 Payload Too Large`: the body exceeds `MaxMessageSizeBytes`, including an unknown-length streaming body.
-- `500 Internal Server Error`: the reader queue overflowed and must be reset.
+- `410 Gone`: the reader queue overflowed and must be reset before polling can resume.
 
 An overflow makes that reader unusable and its queued messages unavailable. It does not affect other readers. The overflow-causing message is not accepted by that reader.
 

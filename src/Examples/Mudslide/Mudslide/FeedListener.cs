@@ -82,7 +82,7 @@ internal sealed class FeedListener
                     continue;
                 }
 
-                if (response.StatusCode == HttpStatusCode.InternalServerError)
+                if (response.StatusCode == HttpStatusCode.Gone)
                 {
                     _error.WriteLine("Reader became unusable; resetting it.");
                     await ResetUntilReadyAsync(cancellationToken);

@@ -418,9 +418,10 @@ public class FeedEndpointTests
 
         var response = await client.GetAsync($"/{feedId}/{readerId}");
 
-        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
         var problem = await response.Content.ReadAsStringAsync();
-        Assert.Contains("Reader queue exceeded", problem, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Reader queue overflowed", problem, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reset is required", problem, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -468,7 +469,7 @@ public class FeedEndpointTests
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.NoContent);
         await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("first")), HttpStatusCode.OK);
         await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("second")), HttpStatusCode.OK);
-        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.InternalServerError);
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.Gone);
 
         await AssertRedirectAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), $"/{feedId:D}/{readerId:D}");
 
