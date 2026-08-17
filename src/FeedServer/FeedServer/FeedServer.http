@@ -32,7 +32,7 @@ hello open feed
 
 GET {{FeedServer_HostAddress}}/{{OpenFeedGuid}}/{{OpenReaderGuid}}
 
-### Open feeds reject Authorization.
+### Public help ignores Authorization, even for an open feed.
 
 GET {{FeedServer_HostAddress}}/{{OpenFeedGuid}}
 Authorization: {{Authorization}}

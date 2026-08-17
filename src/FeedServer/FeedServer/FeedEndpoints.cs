@@ -41,8 +41,6 @@ public static class FeedEndpoints
 
     private static IResult GetFeed(
         string feedGuid,
-        HttpRequest request,
-        FeedStore feedStore,
         IOptions<FeedServerOptions> options,
         ILogger<Program> logger)
     {
@@ -52,13 +50,7 @@ public static class FeedEndpoints
             return BadRequest("Bad feed route", problem);
         }
 
-        var access = GetFeedAccess(request, feedStore, feedId, logger);
-        if (!access.Succeeded)
-        {
-            return AccessFailure(access);
-        }
-
-        return Results.Text(FeedHelpText.Create(access.Feed, options.Value), "text/plain");
+        return Results.Text(FeedHelpText.Create(feedId, options.Value), "text/plain");
     }
 
     private static async Task<IResult> PostFeed(

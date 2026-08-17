@@ -20,10 +20,14 @@ public class FeedEndpointTests
         Assert.NotNull(response.Headers.Location);
         var feedPath = response.Headers.Location!.OriginalString.TrimStart('/');
         Assert.True(Guid.TryParse(feedPath, out _));
+        var readerId = Guid.NewGuid();
 
         await AssertStatusAsync(client.GetAsync(response.Headers.Location), HttpStatusCode.OK);
         await AssertStatusAsync(
             SendAsync(client, HttpMethod.Get, response.Headers.Location!.OriginalString, "unexpected-key"),
+            HttpStatusCode.OK);
+        await AssertStatusAsync(
+            SendAsync(client, HttpMethod.Get, $"/{feedPath}/{readerId}/reset", "unexpected-key"),
             HttpStatusCode.Forbidden);
     }
 
@@ -37,10 +41,18 @@ public class FeedEndpointTests
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.NotNull(response.Headers.Location);
-        await AssertStatusAsync(client.GetAsync(response.Headers.Location), HttpStatusCode.Unauthorized);
+        var readerId = Guid.NewGuid();
+
+        await AssertStatusAsync(client.GetAsync(response.Headers.Location), HttpStatusCode.OK);
         await AssertStatusAsync(
-            SendAsync(client, HttpMethod.Get, response.Headers.Location!.OriginalString, "secret"),
+            SendAsync(client, HttpMethod.Get, response.Headers.Location!.OriginalString, "wrong-key"),
             HttpStatusCode.OK);
+        await AssertStatusAsync(
+            client.GetAsync($"{response.Headers.Location!.OriginalString}/{readerId}/reset"),
+            HttpStatusCode.Unauthorized);
+        await AssertRedirectAsync(
+            SendAsync(client, HttpMethod.Get, $"{response.Headers.Location!.OriginalString}/{readerId}/reset", "secret"),
+            $"{response.Headers.Location!.OriginalString}/{readerId:D}");
     }
 
     [Fact]
@@ -91,14 +103,15 @@ public class FeedEndpointTests
         using var factory = CreateFactory();
         using var client = CreateClient(factory);
         var feedId = Guid.NewGuid();
+        var readerId = Guid.NewGuid();
 
         await AssertStatusAsync(
             SendAsync(client, HttpMethod.Get, $"/{feedId}/admin", "ignored-key"),
             HttpStatusCode.OK);
-        await AssertStatusAsync(
-            SendAsync(client, HttpMethod.Get, $"/{feedId}", "protected-key"),
-            HttpStatusCode.OK);
-        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.Unauthorized);
+        await AssertRedirectAsync(
+            SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "protected-key"),
+            $"/{feedId:D}/{readerId:D}");
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.Unauthorized);
 
         await AssertStatusAsync(client.GetAsync($"/{feedId}/admin"), HttpStatusCode.OK);
         await AssertStatusAsync(
@@ -111,7 +124,10 @@ public class FeedEndpointTests
         Assert.Equal(HttpStatusCode.OK, invalidAuthorizationResponse.StatusCode);
 
         var openFeedId = Guid.NewGuid();
-        await AssertStatusAsync(client.GetAsync($"/{openFeedId}"), HttpStatusCode.OK);
+        var openReaderId = Guid.NewGuid();
+        await AssertRedirectAsync(
+            client.GetAsync($"/{openFeedId}/{openReaderId}/reset"),
+            $"/{openFeedId:D}/{openReaderId:D}");
         var store = (FeedStore)factory.Services.GetService(typeof(FeedStore))!;
         var activityBeforeAdmin = store.AuthorizeExisting(openFeedId, key: null)!.Feed!.LastActivityAt;
 
@@ -122,33 +138,35 @@ public class FeedEndpointTests
     }
 
     [Fact]
-    public async Task OpenFeed_RejectsAuthorizationOnEveryEndpointShape()
+    public async Task OpenFeed_RejectsAuthorizationOnEveryFeedDataEndpointShape()
     {
         using var factory = CreateFactory();
         using var client = CreateClient(factory);
         var feedId = Guid.NewGuid();
         var readerId = Guid.NewGuid();
 
-        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
+        await AssertRedirectAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), $"/{feedId:D}/{readerId:D}");
 
-        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}", "open-key"), HttpStatusCode.Forbidden);
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}", "open-key"), HttpStatusCode.OK);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}", "open-key", Text("body")), HttpStatusCode.Forbidden);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}", "open-key"), HttpStatusCode.Forbidden);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "open-key"), HttpStatusCode.Forbidden);
     }
 
     [Fact]
-    public async Task ProtectedFeed_RequiresMatchingAuthorizationOnEveryEndpointShape()
+    public async Task ProtectedFeed_RequiresMatchingAuthorizationOnEveryFeedDataEndpointShape()
     {
         using var factory = CreateFactory(("FeedServer:PollTimeout", "00:00:00.010"));
         using var client = CreateClient(factory);
         var feedId = Guid.NewGuid();
         var readerId = Guid.NewGuid();
 
-        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}", "secret"), HttpStatusCode.OK);
+        await AssertRedirectAsync(
+            SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "secret"),
+            $"/{feedId:D}/{readerId:D}");
 
-        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.Unauthorized);
-        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}", "wrong"), HttpStatusCode.Unauthorized);
+        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}", "wrong"), HttpStatusCode.OK);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}", null, Text("body")), HttpStatusCode.Unauthorized);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}", "wrong", Text("body")), HttpStatusCode.Unauthorized);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}", null), HttpStatusCode.Unauthorized);
@@ -168,13 +186,13 @@ public class FeedEndpointTests
         using var factory = CreateFactory();
         using var client = CreateClient(factory);
         var feedId = Guid.NewGuid();
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"/{feedId}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/{feedId}/{Guid.NewGuid()}/reset");
         request.Headers.TryAddWithoutValidation("Authorization", ["first", "second"]);
 
         using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
+        Assert.Null(((FeedStore)factory.Services.GetService(typeof(FeedStore))!).AuthorizeExisting(feedId, key: null));
     }
 
     [Fact]
@@ -185,9 +203,9 @@ public class FeedEndpointTests
         var feedId = Guid.NewGuid();
 
         await AssertStatusAsync(
-            SendAsync(client, HttpMethod.Get, $"/{feedId}", "   "),
+            SendAsync(client, HttpMethod.Get, $"/{feedId}/{Guid.NewGuid()}/reset", "   "),
             HttpStatusCode.Unauthorized);
-        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
+        Assert.Null(((FeedStore)factory.Services.GetService(typeof(FeedStore))!).AuthorizeExisting(feedId, key: null));
     }
 
     [Fact]
@@ -201,18 +219,28 @@ public class FeedEndpointTests
         using var client = CreateClient(factory);
         var feedId = Guid.NewGuid();
 
-        using var response = await SendAsync(client, HttpMethod.Get, $"/{feedId:N}", "secret");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/{feedId:N}");
+        request.Headers.TryAddWithoutValidation("Authorization", ["first", "second"]);
+        using var response = await client.SendAsync(request);
         var help = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
         Assert.Contains($"FeedId: {feedId:D}", help, StringComparison.Ordinal);
-        Assert.Contains("Mode: protected", help, StringComparison.Ordinal);
+        Assert.DoesNotContain("Mode:", help, StringComparison.Ordinal);
         Assert.Contains("GET  /{FeedId}/admin", help, StringComparison.Ordinal);
         Assert.Contains("Max body: 123 bytes", help, StringComparison.Ordinal);
         Assert.Contains("after 00:00:03", help, StringComparison.Ordinal);
         Assert.Contains("exceeding 7 queued messages", help, StringComparison.Ordinal);
         Assert.Contains("expires after 2 hours", help, StringComparison.Ordinal);
+        Assert.Null(((FeedStore)factory.Services.GetService(typeof(FeedStore))!).AuthorizeExisting(feedId, key: null));
+
+        var readerId = Guid.NewGuid();
+        await AssertRedirectAsync(
+            SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "secret"),
+            $"/{feedId:D}/{readerId:D}");
+        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}", "wrong"), HttpStatusCode.OK);
     }
 
     [Fact]
@@ -221,8 +249,11 @@ public class FeedEndpointTests
         using var factory = CreateFactory(("FeedServer:MaxMessageSizeBytes", "5"));
         using var client = CreateClient(factory);
         var feedId = Guid.NewGuid();
+        var readerId = Guid.NewGuid();
 
-        await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}", "secret"), HttpStatusCode.OK);
+        await AssertRedirectAsync(
+            SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "secret"),
+            $"/{feedId:D}/{readerId:D}");
 
         await AssertStatusAsync(
             SendAsync(client, HttpMethod.Post, $"/{feedId}", "wrong", Text("123456")),
@@ -241,8 +272,9 @@ public class FeedEndpointTests
         using var factory = CreateFactory(("FeedServer:MaxMessageSizeBytes", "5"));
         using var client = CreateClient(factory);
         var feedId = Guid.NewGuid();
+        var readerId = Guid.NewGuid();
 
-        await AssertStatusAsync(client.GetAsync($"/{feedId}"), HttpStatusCode.OK);
+        await AssertRedirectAsync(client.GetAsync($"/{feedId}/{readerId}/reset"), $"/{feedId:D}/{readerId:D}");
 
         await AssertStatusAsync(
             SendAsync(client, HttpMethod.Post, $"/{feedId}", "key", Text("123456")),

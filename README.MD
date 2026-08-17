@@ -7,21 +7,20 @@ After two somewhat successful attempts, it's time to drop all pretense of profes
 | Request | Behavior |
 | --- | --- |
 | `GET /` | Create a random feed and redirect to `/{feedGuid}`. |
-| `GET /{feedGuid}` | Create or touch a feed and return plain-text help. |
+| `GET /{feedGuid}` | Return public plain-text help. |
 | `POST /{feedGuid}` | Publish the raw request body to every current reader. |
 | `GET /{feedGuid}/admin` | Open a browser debug client without creating or touching the feed. |
 | `GET /{feedGuid}/{readerGuid}` | Create or touch a reader and return one queued message, or `204 No Content` after the poll timeout. |
 | `GET /{feedGuid}/{readerGuid}/reset` | Create or reset a reader, discard its queued messages, make it usable after overflow, and redirect to the reader URL. |
 
 Feed and reader IDs must parse as C# `Guid` values. A missing feed is created by the first valid request. A POST is valid for creation only after its authorization and body-size checks pass.
-
 Messages are fanned out only to readers that exist when the POST is accepted. Create a reader first by calling its reset endpoint or starting a long poll. Each reader has an independent FIFO queue, and clients can receive their own messages because the server has no sender identity.
 
 The response to a reader preserves the posted `Content-Type`. If the POST did not include one, the response uses `application/octet-stream`.
 
 ## Authorization
 
-The first valid request fixes a feed's access mode until that feed expires:
+The first valid feed request fixes a feed's access mode until that feed expires:
 
 - No `Authorization` header creates an open feed. Open feeds reject requests that include the header with `403 Forbidden`.
 - One non-empty `Authorization: <key>` header creates a protected feed. Protected feeds return `401 Unauthorized` for a missing or mismatched key.
