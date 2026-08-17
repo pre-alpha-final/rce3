@@ -21,6 +21,13 @@ internal class Program
 
         try
         {
+            var npxCommand = NpxCommand.Resolve();
+            if (npxCommand is null)
+            {
+                Console.Error.WriteLine("Could not locate Node.js and the npx CLI on PATH.");
+                return 1;
+            }
+
             using var handler = new SocketsHttpHandler
             {
                 AllowAutoRedirect = false
@@ -31,7 +38,7 @@ internal class Program
             };
 
             var commandRunner = new SystemCommandRunner();
-            var notificationSender = new MudslideNotificationSender(commandRunner);
+            var notificationSender = new MudslideNotificationSender(commandRunner, npxCommand);
             var listener = new FeedListener(
                 client,
                 options!,

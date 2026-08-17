@@ -118,10 +118,7 @@ public class FeedListenerTests
             3 => Completed(Response(HttpStatusCode.NoContent)),
             _ => Cancel(cancellation, token)
         });
-        var sender = new RecordingNotificationSender(new CommandExecutionResult(
-            true,
-            7,
-            StandardError: "Mudslide rejected private notification."));
+        var sender = new RecordingNotificationSender(new CommandExecutionResult(true, 7));
         using var client = CreateClient(handler);
         var error = new StringWriter();
         var listener = CreateListener(client, sender, "private-key", error);
@@ -130,7 +127,6 @@ public class FeedListenerTests
 
         Assert.Single(sender.Notifications);
         Assert.Contains("code 7", error.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Mudslide rejected [notification].", error.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("private notification", error.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("private-key", error.ToString(), StringComparison.Ordinal);
         Assert.Equal(4, handler.Requests.Count);

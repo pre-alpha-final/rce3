@@ -53,7 +53,7 @@ internal sealed class FeedListener
                     if (NotificationMessage.TryParse(body, out var notification))
                     {
                         var result = await _notificationSender.SendAsync(notification, cancellationToken);
-                        LogCommandFailure(result, notification);
+                        LogCommandFailure(result);
                     }
 
                     continue;
@@ -153,7 +153,7 @@ internal sealed class FeedListener
             cancellationToken);
     }
 
-    private void LogCommandFailure(CommandExecutionResult result, string notification)
+    private void LogCommandFailure(CommandExecutionResult result)
     {
         if (!result.Started)
         {
@@ -167,22 +167,6 @@ internal sealed class FeedListener
         }
 
         _error.WriteLine($"The mudslide command exited with code {result.ExitCode}.");
-        var diagnostic = string.IsNullOrWhiteSpace(result.StandardError)
-            ? result.StandardOutput
-            : result.StandardError;
-        if (string.IsNullOrWhiteSpace(diagnostic))
-        {
-            return;
-        }
-
-        diagnostic = diagnostic.Replace(notification, "[notification]", StringComparison.Ordinal);
-        var mudslideText = NotificationMessage.ToMudslideText(notification);
-        if (mudslideText != notification)
-        {
-            diagnostic = diagnostic.Replace(mudslideText, "[notification]", StringComparison.Ordinal);
-        }
-
-        _error.WriteLine(diagnostic.Trim());
     }
 
     private Task DelayBeforeRetryAsync(CancellationToken cancellationToken)
