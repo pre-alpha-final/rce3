@@ -57,7 +57,7 @@ public class FeedListenerTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
         Assert.Equal(3, handler.Requests.Count);
-        Assert.Contains("no message", output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("no message", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

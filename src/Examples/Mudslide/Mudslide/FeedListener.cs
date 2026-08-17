@@ -79,7 +79,6 @@ internal sealed class FeedListener
 
                 if (response.StatusCode == HttpStatusCode.NoContent)
                 {
-                    _output.WriteLine("Poll completed with no message; continuing.");
                     continue;
                 }
 
