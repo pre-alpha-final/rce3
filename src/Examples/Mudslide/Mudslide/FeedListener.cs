@@ -10,6 +10,8 @@ internal sealed class FeedProtocolException(HttpStatusCode statusCode, string op
 
 internal sealed class FeedListener
 {
+    private const string ConnectivityTestMessage = "connectivity test";
+
     private readonly HttpClient _client;
     private readonly MudslideOptions _options;
     private readonly INotificationSender _notificationSender;
@@ -43,6 +45,11 @@ internal sealed class FeedListener
         var feedId = Uri.UnescapeDataString(_options.FeedUri.Segments[^1]);
         _output.WriteLine($"Connecting to feed {feedId}.");
         await ResetUntilReadyAsync(cancellationToken);
+        _output.WriteLine("Sending connectivity test notification.");
+        var connectivityTestResult = await _notificationSender.SendAsync(
+            ConnectivityTestMessage,
+            cancellationToken);
+        LogCommandResult(connectivityTestResult);
 
         while (true)
         {

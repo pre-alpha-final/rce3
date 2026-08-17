@@ -9,7 +9,7 @@ public class FeedListenerTests
     private static readonly Guid ReaderId = Guid.Parse("74766693-8f1a-49a9-beac-4b9c1a275bac");
 
     [Fact]
-    public async Task ResetsThenProcessesNotificationsInOrder()
+    public async Task ResetsSendsConnectivityTestThenProcessesNotificationsInOrder()
     {
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
@@ -26,13 +26,13 @@ public class FeedListenerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
-        Assert.Equal(["first", "second\nline"], sender.Notifications);
+        Assert.Equal(["connectivity test", "first", "second\nline"], sender.Notifications);
         Assert.Equal($"/{FeedUri.Segments[^1]}/{ReaderId:D}/reset", handler.Requests[0].Uri.AbsolutePath);
         Assert.Equal($"/{FeedUri.Segments[^1]}/{ReaderId:D}", handler.Requests[1].Uri.AbsolutePath);
         Assert.All(handler.Requests, request => Assert.Equal("raw-key", request.Authorization));
         Assert.Contains("Connecting", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("Reader ready", output.ToString(), StringComparison.Ordinal);
-        Assert.Equal(2, output.ToString().Split("Notification sent.").Length - 1);
+        Assert.Equal(3, output.ToString().Split("Notification sent.").Length - 1);
         Assert.DoesNotContain("raw-key", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("second\nline", output.ToString(), StringComparison.Ordinal);
     }
@@ -77,7 +77,7 @@ public class FeedListenerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
-        Assert.Empty(sender.Notifications);
+        Assert.Equal(["connectivity test"], sender.Notifications);
         Assert.Contains("ignored", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("private ordinary message", output.ToString(), StringComparison.Ordinal);
     }
@@ -159,7 +159,7 @@ public class FeedListenerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
-        Assert.Single(sender.Notifications);
+        Assert.Equal(["connectivity test", "private notification"], sender.Notifications);
         Assert.Contains("code 7", error.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("private notification", error.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("private-key", error.ToString(), StringComparison.Ordinal);
