@@ -159,6 +159,8 @@ Use short in-memory `FeedServer:PollTimeout` overrides in endpoint tests. Use an
 
 ## Examples and secrets
 
+All example apps that connect to RCE3 must use `RCE3_FEED` for the feed URL and optional `RCE3_AUTH` for the raw Authorization value as their shared, non-committed starting configuration. Do not invent app-specific environment-variable names for these values. Explicit app inputs may override the environment variables where appropriate, but never commit populated values or local environment files containing authorization values.
+
 Do not hard-code real keys in examples, tests, docs, scripts, or the admin page. The browser debug client accepts a key only through its in-memory input and must never place it in URLs, browser storage, logs, or rendered output.
 
 ## PowerShell and release safety
