@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Youtube/Youtube.csproj" />
+  <Project Path="Youtube.Tests/Youtube.Tests.csproj" />
+</Solution>
