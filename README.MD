@@ -1,22 +1,30 @@
 # RCE3 - Remote Controlled Electronics v3
 
-After two somewhat successful attempts, it's time to drop all pretense of professionalism and goblin-engineer something actually worth using. A tiny, wysiwyg feed server; POST a raw request body to a feed and every long-pooling "connected" reader gets it. There are no message schemas, envelopes, sender identities, receiver identities, acknowledgements, or required client libraries.
+After two somewhat successful attempts, it's time to drop all pretense of professionalism and goblin-engineer something actually worth using. A tiny, wysiwyg feed server; POST a raw request body to a feed and every long-polling "connected" reader gets it. There are no message schemas, envelopes, sender identities, receiver identities, acknowledgements, or required client libraries.
 
 ## HTTP API
+
+### Core messaging requests
+
+RCE3's protocol revolves around two requests: readers keep a GET pending for the next message, and publishers POST raw bytes to the feed.
+
+| Request | Behavior |
+| --- | --- |
+| `GET /{feedGuid}/{readerGuid}` | Create or touch a reader, then long-poll for exactly one queued message. Returns the raw message, or `204 No Content` if the poll ends without one. |
+| `POST /{feedGuid}` | Publish the raw request body to every reader that currently exists. Returns the number of reader queues that accepted the message. |
+
+A missing feed is created by the first valid request. A POST is valid for creation only after its authorization and body-size checks pass.
+
+### Supporting requests
+
+These routes create convenient IDs, explain the service, provide a browser client, or recover a reader.
 
 | Request | Behavior |
 | --- | --- |
 | `GET /` | Create a random feed and redirect to `/{feedGuid}`. |
 | `GET /{feedGuid}` | Return public plain-text help. |
-| `POST /{feedGuid}` | Publish the raw request body to every current reader. |
 | `GET /{feedGuid}/admin` | Open a browser debug client without creating or touching the feed. |
-| `GET /{feedGuid}/{readerGuid}` | Create or touch a reader and return one queued message, or `204 No Content` after the poll timeout. |
 | `GET /{feedGuid}/{readerGuid}/reset` | Create or reset a reader, discard its queued messages, make it usable after overflow, and redirect to the reader URL. |
-
-Feed and reader IDs must parse as C# `Guid` values. A missing feed is created by the first valid request. A POST is valid for creation only after its authorization and body-size checks pass.
-Messages are fanned out only to readers that exist when the POST is accepted. Create a reader first by calling its reset endpoint or starting a long poll. Each reader has an independent FIFO queue, and clients can receive their own messages because the server has no sender identity.
-
-The response to a reader preserves the posted `Content-Type`. If the POST did not include one, the response uses `application/octet-stream`.
 
 ## Authorization
 
