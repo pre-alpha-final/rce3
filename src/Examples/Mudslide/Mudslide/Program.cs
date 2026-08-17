@@ -45,6 +45,7 @@ internal class Program
                 Guid.NewGuid(),
                 notificationSender,
                 TimeSpan.FromSeconds(1),
+                Console.Out,
                 Console.Error);
 
             await listener.RunAsync(cancellation.Token);
@@ -52,6 +53,7 @@ internal class Program
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
+            Console.Out.WriteLine("Listener stopped.");
             return 0;
         }
         catch (FeedProtocolException exception)

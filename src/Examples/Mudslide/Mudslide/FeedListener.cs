@@ -14,6 +14,7 @@ internal sealed class FeedListener
     private readonly MudslideOptions _options;
     private readonly INotificationSender _notificationSender;
     private readonly TimeSpan _retryDelay;
+    private readonly TextWriter _output;
     private readonly TextWriter _error;
     private readonly Uri _readerUri;
     private readonly Uri _resetUri;
@@ -24,12 +25,14 @@ internal sealed class FeedListener
         Guid readerId,
         INotificationSender notificationSender,
         TimeSpan retryDelay,
+        TextWriter output,
         TextWriter error)
     {
         _client = client;
         _options = options;
         _notificationSender = notificationSender;
         _retryDelay = retryDelay;
+        _output = output;
         _error = error;
         _readerUri = new Uri($"{options.FeedUri.AbsoluteUri}/{readerId:D}", UriKind.Absolute);
         _resetUri = new Uri($"{_readerUri.AbsoluteUri}/reset", UriKind.Absolute);
@@ -37,6 +40,8 @@ internal sealed class FeedListener
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
+        var feedId = Uri.UnescapeDataString(_options.FeedUri.Segments[^1]);
+        _output.WriteLine($"Connecting to feed {feedId}.");
         await ResetUntilReadyAsync(cancellationToken);
 
         while (true)
@@ -49,11 +54,17 @@ internal sealed class FeedListener
 
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
+                    _output.WriteLine("Feed message received.");
                     var body = await response.Content.ReadAsByteArrayAsync(cancellationToken);
                     if (NotificationMessage.TryParse(body, out var notification))
                     {
+                        _output.WriteLine("Notification accepted; invoking Mudslide.");
                         var result = await _notificationSender.SendAsync(notification, cancellationToken);
-                        LogCommandFailure(result);
+                        LogCommandResult(result);
+                    }
+                    else
+                    {
+                        _output.WriteLine("Feed message ignored; it is not a notification.");
                     }
 
                     continue;
@@ -61,6 +72,7 @@ internal sealed class FeedListener
 
                 if (response.StatusCode == HttpStatusCode.NoContent)
                 {
+                    _output.WriteLine("Poll completed with no message; continuing.");
                     continue;
                 }
 
@@ -100,6 +112,8 @@ internal sealed class FeedListener
 
     private async Task ResetUntilReadyAsync(CancellationToken cancellationToken)
     {
+        _output.WriteLine("Resetting reader.");
+
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -109,6 +123,7 @@ internal sealed class FeedListener
                 using var response = await SendAsync(_resetUri, cancellationToken);
                 if (response.StatusCode == HttpStatusCode.Found)
                 {
+                    _output.WriteLine("Reader ready; polling for messages.");
                     return;
                 }
 
@@ -153,7 +168,7 @@ internal sealed class FeedListener
             cancellationToken);
     }
 
-    private void LogCommandFailure(CommandExecutionResult result)
+    private void LogCommandResult(CommandExecutionResult result)
     {
         if (!result.Started)
         {
@@ -163,6 +178,7 @@ internal sealed class FeedListener
 
         if (result.ExitCode == 0)
         {
+            _output.WriteLine("Notification sent.");
             return;
         }
 

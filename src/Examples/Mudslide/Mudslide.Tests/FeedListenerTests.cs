@@ -21,7 +21,8 @@ public class FeedListenerTests
         });
         var sender = new RecordingNotificationSender(new CommandExecutionResult(true, 0));
         using var client = CreateClient(handler);
-        var listener = CreateListener(client, sender, "raw-key");
+        var output = new StringWriter();
+        var listener = CreateListener(client, sender, "raw-key", output: output);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
@@ -29,6 +30,11 @@ public class FeedListenerTests
         Assert.Equal($"/{FeedUri.Segments[^1]}/{ReaderId:D}/reset", handler.Requests[0].Uri.AbsolutePath);
         Assert.Equal($"/{FeedUri.Segments[^1]}/{ReaderId:D}", handler.Requests[1].Uri.AbsolutePath);
         Assert.All(handler.Requests, request => Assert.Equal("raw-key", request.Authorization));
+        Assert.Contains("Connecting", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Reader ready", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(2, output.ToString().Split("Notification sent.").Length - 1);
+        Assert.DoesNotContain("raw-key", output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("second\nline", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -42,11 +48,38 @@ public class FeedListenerTests
             _ => Cancel(cancellation, token)
         });
         using var client = CreateClient(handler);
-        var listener = CreateListener(client, new RecordingNotificationSender(new CommandExecutionResult(true, 0)));
+        var output = new StringWriter();
+        var listener = CreateListener(
+            client,
+            new RecordingNotificationSender(new CommandExecutionResult(true, 0)),
+            output: output);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
         Assert.Equal(3, handler.Requests.Count);
+        Assert.Contains("no message", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NonNotificationIsReportedWithoutLoggingBody()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
+        {
+            1 => Completed(Response(HttpStatusCode.Found)),
+            2 => Completed(Response(HttpStatusCode.OK, "private ordinary message")),
+            _ => Cancel(cancellation, token)
+        });
+        var sender = new RecordingNotificationSender(new CommandExecutionResult(true, 0));
+        using var client = CreateClient(handler);
+        var output = new StringWriter();
+        var listener = CreateListener(client, sender, output: output);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
+
+        Assert.Empty(sender.Notifications);
+        Assert.Contains("ignored", output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private ordinary message", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -120,8 +153,9 @@ public class FeedListenerTests
         });
         var sender = new RecordingNotificationSender(new CommandExecutionResult(true, 7));
         using var client = CreateClient(handler);
+        var output = new StringWriter();
         var error = new StringWriter();
-        var listener = CreateListener(client, sender, "private-key", error);
+        var listener = CreateListener(client, sender, "private-key", error, output);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
@@ -129,6 +163,10 @@ public class FeedListenerTests
         Assert.Contains("code 7", error.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("private notification", error.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("private-key", error.ToString(), StringComparison.Ordinal);
+        Assert.Contains("invoking Mudslide", output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Notification sent", output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private notification", output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private-key", output.ToString(), StringComparison.Ordinal);
         Assert.Equal(4, handler.Requests.Count);
     }
 
@@ -157,7 +195,8 @@ public class FeedListenerTests
         HttpClient client,
         INotificationSender sender,
         string? authorization = null,
-        TextWriter? error = null)
+        TextWriter? error = null,
+        TextWriter? output = null)
     {
         return new FeedListener(
             client,
@@ -165,6 +204,7 @@ public class FeedListenerTests
             ReaderId,
             sender,
             TimeSpan.Zero,
+            output ?? TextWriter.Null,
             error ?? TextWriter.Null);
     }
 
