@@ -9,7 +9,7 @@
 <header class="app-header">
     <div class="brand">
         <img src="icon.svg" width="56" height="56" alt="" />
-        <div><h1>TabletUI</h1><p>Your feed. At your fingertips.</p></div>
+        <div><h1>TabletUI</h1></div>
     </div>
     <div class="header-actions">
         <div class="connection-status" role="status" aria-live="polite">
@@ -54,8 +54,6 @@
                 </div>
             </fieldset>
         </form>
-        <p class="panel-hint status-help">Connected means a feed request is active without a reported failure; it does not confirm the player is online.
-            Long waits for messages are normal. Controls pause while offline or waiting to retry after an error.</p>
     </section>
     <div class="page-feedback" role="status" aria-live="polite">
         @if (!string.IsNullOrEmpty(feedback))

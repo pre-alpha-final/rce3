@@ -137,6 +137,10 @@ Keep the surface plain: text help, raw message responses, and standard problem d
 - Use the source-generated `FeedServerLog` methods for structured logs with feed/reader IDs and counts. Keep empty long-poll completions at Debug to avoid routine production noise, and never include secrets or bodies.
 - Avoid unrelated dependency additions. Production code currently needs only the ASP.NET Core shared framework.
 
+## TabletUI version marker
+
+With every change to the codebase, replace the footer version GUID in `src/Examples/TabletUI/TabletUI/Layout/MainLayout.razor` with a newly generated GUID in the same change set, even when the change is outside TabletUI. Keep this GUID as a fixed literal so all devices running the same version display the same value; never generate it at runtime. This marker lets users confirm whether mobile PWA instances have loaded an updated version.
+
 ## Test expectations
 
 Add or update tests whenever changing:
