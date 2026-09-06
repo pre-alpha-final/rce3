@@ -36,8 +36,6 @@ Examples must create a reader before publishing. A POST is delivered only to rea
 - `src/FeedServer/FeedServer/FeedState.cs`: feed and bounded reader-queue state.
 - `src/FeedServer/FeedServer/FeedExpirationService.cs`: periodic inactive-feed cleanup.
 - `src/FeedServer/FeedServer/FeedServerLog.cs`: source-generated structured logging definitions.
-- `scripts/smoke-test.ps1`: end-to-end open/protected feed check against a running server.
-- `scripts/package-release.ps1`: test, publish, and zip a framework-dependent single-file release.
 
 ## Build, test, and run
 
@@ -47,13 +45,11 @@ Run commands from the repository root:
 dotnet test src\FeedServer\FeedServer.slnx
 dotnet build src\FeedServer\FeedServer.slnx -c Release -warnaserror
 dotnet run --project src\FeedServer\FeedServer\FeedServer.csproj --no-launch-profile
-.\scripts\smoke-test.ps1 -BaseUrl http://localhost:5137
-.\scripts\package-release.ps1 -Runtime win-x64 -Configuration Release
 ```
 
 The project targets `net10.0`. With no `urls` or `ASPNETCORE_URLS` override, it binds to `http://0.0.0.0:{Port}`. The launch profiles bind localhost URLs and therefore override `Port` when they are active.
 
-Before finishing any behavior change, run the full solution tests and `git diff --check`. For release/script changes, also run the affected script when practical. Do not leave generated `artifacts/` output in a patch.
+Before finishing any behavior change, run the full solution tests and `git diff --check`. Do not leave generated `artifacts/` output in a patch.
 
 ## Configuration
 
@@ -153,7 +149,6 @@ Add or update tests whenever changing:
 - Long-poll wake-up, timeout, cancellation, expiration, reset, or shutdown behavior.
 - Feed touches, TTL cleanup, or injected-time behavior.
 - Request size and slow-client configuration.
-- Smoke or packaging scripts.
 
 Use short in-memory `FeedServer:PollTimeout` overrides in endpoint tests. Use an injected/manual `TimeProvider` for TTL tests. Avoid timing-only sleeps when a deterministic queue setup or completion signal can establish the same precondition.
 
@@ -163,12 +158,11 @@ All example apps that connect to RCE3 must use `RCE3_FEED` for the feed URL and 
 
 Do not hard-code real keys in examples, tests, docs, scripts, or the admin page. The browser debug client accepts a key only through its in-memory input and must never place it in URLs, browser storage, logs, or rendered output.
 
-## PowerShell and release safety
+## PowerShell safety
 
 - Check `$LASTEXITCODE` after native commands whose failure must stop a script; `$ErrorActionPreference = "Stop"` alone is not sufficient in all supported PowerShell versions.
 - Validate values interpolated into deletion paths.
 - Resolve and verify recursive deletion targets before `Remove-Item -Recurse`.
-- Keep the publish directory a direct child of the requested output root.
 
 ## Line endings and diff hygiene
 
