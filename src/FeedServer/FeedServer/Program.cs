@@ -19,6 +19,13 @@ public class Program
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<FeedStore>();
         builder.Services.AddHostedService<FeedExpirationService>();
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy => policy
+                .AllowAnyOrigin()
+                .WithMethods(HttpMethods.Get, HttpMethods.Post)
+                .WithHeaders("Authorization", "Content-Type"));
+        });
 
         builder.WebHost.ConfigureKestrel(options =>
         {
@@ -35,6 +42,8 @@ public class Program
         }
 
         var app = builder.Build();
+
+        app.UseCors();
 
         FeedEndpoints.Map(app);
 

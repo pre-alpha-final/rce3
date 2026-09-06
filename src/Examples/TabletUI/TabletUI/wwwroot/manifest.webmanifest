@@ -1,0 +1,32 @@
+{
+  "name": "TabletUI — RCE3 remote",
+  "short_name": "TabletUI",
+  "description": "Touch controls and messages for your RCE3 feed.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f0eee5",
+  "theme_color": "#17645a",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,348 @@
+@page "/"
+@implements IAsyncDisposable
+@inject FeedConnection Connection
+@inject ConnectionStorage Storage
+@inject IJSRuntime JS
+
+<PageTitle>TabletUI · Your feed remote</PageTitle>
+
+<header class="app-header">
+    <div class="brand">
+        <img src="icon.svg" width="56" height="56" alt="" />
+        <div><h1>TabletUI</h1><p>Your feed. At your fingertips.</p></div>
+    </div>
+    <div class="header-actions">
+        <div class="connection-status" role="status" aria-live="polite">
+            <span class="status-dot @(Connection.CanSend ? "status-ready" : "")" aria-hidden="true"></span>
+            <span>@Connection.Status</span>
+        </div>
+        <button type="button" class="btn btn-outline-dark settings-button" aria-controls="connection-settings"
+                aria-expanded="@settingsOpen" @onclick="() => settingsOpen = !settingsOpen">
+            <SettingsCogs />
+            <span>Settings</span>
+        </button>
+    </div>
+</header>
+
+<main id="main-content" tabindex="-1">
+    <section id="connection-settings" class="panel settings-panel" aria-labelledby="settings-title" hidden="@(!settingsOpen)">
+        <div class="panel-heading"><div><span class="eyebrow">Make the connection</span><h2 id="settings-title">Settings</h2></div></div>
+        <p class="panel-intro">Use the same feed and optional key as your player.</p>
+        <form @onsubmit="ConnectAsync" @onsubmit:preventDefault>
+            <fieldset disabled="@busy">
+                <div class="settings-fields">
+                    <div>
+                        <label for="feed-url" class="form-label">Feed URL <span class="field-note">RCE3_FEED</span></label>
+                        <input id="feed-url" class="form-control" type="url" inputmode="url" autocomplete="off"
+                               spellcheck="false" required @bind="feedDraft" @bind:event="oninput"
+                               placeholder="https://your-server/feed-guid" aria-describedby="feed-help" />
+                        <p id="feed-help" class="panel-hint">Paste the full feed address, without a reader ID.</p>
+                    </div>
+                    <div>
+                        <label for="feed-key" class="form-label">Authorization key <span class="field-note">optional · RCE3_AUTH</span></label>
+                        <input id="feed-key" class="form-control" type="password" autocomplete="off" spellcheck="false"
+                               @bind="authDraft" @bind:event="oninput" aria-describedby="key-help" />
+                        <p id="key-help" class="panel-hint">Leave empty for an open feed. The key stays masked.</p>
+                    </div>
+                </div>
+                <p class="settings-note">Connect saves these settings, including the key, in this browser and uses them next time.
+                    Edits take effect only when you press Connect. Forget removes the saved settings and disconnects.</p>
+                <div class="button-row">
+                    <button type="submit" class="btn btn-primary">@(busy ? "Please wait…" : "Connect & save")</button>
+                    <button type="button" class="btn btn-outline-dark" @onclick="DisconnectAsync">Disconnect</button>
+                    <button type="button" class="btn btn-outline-danger" @onclick="ForgetAsync">Forget settings</button>
+                </div>
+            </fieldset>
+        </form>
+        <p class="panel-hint status-help">Connected means this tablet can send to the feed; it does not confirm the player is online.
+            If the connection drops, controls pause until it is ready again.</p>
+    </section>
+    <div class="page-feedback" role="status" aria-live="polite">
+        @if (!string.IsNullOrEmpty(feedback))
+        {
+            <p class="notice">@feedback</p>
+        }
+        @if (!string.IsNullOrEmpty(storageFeedback))
+        {
+            <p class="notice feedback-error">@storageFeedback</p>
+        }
+        @if (!string.IsNullOrEmpty(lifecycleFeedback))
+        {
+            <p class="notice feedback-error">@lifecycleFeedback</p>
+        }
+    </div>
+    <div class="panel-stack">
+        @foreach (var panel in PanelCatalog.All)
+        {
+            <section @key="panel.Id" id="@panel.Id" class="panel @($"{panel.Id}-panel")" aria-labelledby="@($"{panel.Id}-title")">
+                @if (panel.Collapsible)
+                {
+                    <h2 id="@($"{panel.Id}-title")" class="collapse-heading">
+                        <button type="button" class="panel-toggle" aria-expanded="@expandedPanels.Contains(panel.Id)"
+                                aria-controls="@($"{panel.Id}-content")" @onclick="() => TogglePanel(panel.Id)">
+                            <span>@panel.Title <span class="toggle-note">Messages &amp; activity</span></span>
+                            <span aria-hidden="true" class="toggle-symbol">@(expandedPanels.Contains(panel.Id) ? "−" : "+")</span>
+                        </button>
+                    </h2>
+                }
+                else
+                {
+                    <div class="panel-heading"><div><span class="eyebrow">App controls</span><h2 id="@($"{panel.Id}-title")">@panel.Title</h2></div></div>
+                }
+                <div id="@($"{panel.Id}-content")" class="panel-content" hidden="@(panel.Collapsible && !expandedPanels.Contains(panel.Id))">
+                    <DynamicComponent Type="@panel.ComponentType" Parameters="@PanelParameters" />
+                </div>
+            </section>
+        }
+    </div>
+</main>
+
+@code {
+    private readonly HashSet<string> expandedPanels = [];
+    private string feedDraft = string.Empty;
+    private string authDraft = string.Empty;
+    private string? feedback = "Loading saved connection…";
+    private string? storageFeedback;
+    private string? lifecycleFeedback;
+    private bool settingsOpen;
+    private bool busy = true;
+    private bool disposed;
+    private IJSObjectReference? lifecycle;
+    private DotNetObjectReference<Home>? self;
+
+    private IDictionary<string, object> PanelParameters => new Dictionary<string, object>
+    {
+        [nameof(CommandPanelBase.Connection)] = Connection
+    };
+
+    protected override void OnInitialized() => Connection.Changed += ConnectionChanged;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            var module = await JS.InvokeAsync<IJSObjectReference>("import", "./lifecycle.js");
+            if (disposed)
+            {
+                await module.DisposeAsync();
+                return;
+            }
+            lifecycle = module;
+            self = DotNetObjectReference.Create(this);
+            await lifecycle.InvokeVoidAsync("watch", self);
+        }
+        catch (JSException)
+        {
+            lifecycleFeedback = "Automatic reconnect is unavailable. Use Connect after returning to the app.";
+        }
+
+        try
+        {
+            var stored = await Storage.LoadAsync();
+            if (disposed)
+            {
+                return;
+            }
+            storageFeedback = stored.Error is null ? null : "Saved settings could not be read. Enter them to connect for this visit.";
+            if (stored.Settings is { } settings)
+            {
+                feedDraft = settings.RCE3_FEED;
+                authDraft = settings.RCE3_AUTH;
+                feedback = null;
+                await Connection.ConnectAsync(settings);
+            }
+            else
+            {
+                settingsOpen = true;
+                feedback = "Add your feed in Settings to get started.";
+            }
+        }
+        catch (Exception)
+        {
+            settingsOpen = true;
+            feedback = "The saved connection could not be opened. Check Settings and press Connect.";
+        }
+        finally
+        {
+            busy = false;
+            if (!disposed)
+            {
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (busy || disposed)
+        {
+            return;
+        }
+        if (!ConnectionSettings.TryCreate(feedDraft, authDraft, out var settings, out var error) || settings is null)
+        {
+            feedback = error;
+            return;
+        }
+
+        busy = true;
+        feedback = null;
+        storageFeedback = null;
+        try
+        {
+            try
+            {
+                var saveError = await Storage.SaveAsync(settings);
+                storageFeedback = saveError is null ? null : "Settings could not be saved. You can connect now, but will need to enter them next time.";
+            }
+            catch (Exception)
+            {
+                storageFeedback = "Settings could not be saved. You can connect now, but will need to enter them next time.";
+            }
+            if (!disposed)
+            {
+                await Connection.ConnectAsync(settings);
+                feedback = storageFeedback is null ? "Settings saved. Connection updated." : "Connection updated for this visit.";
+            }
+        }
+        catch (Exception)
+        {
+            feedback = "Could not connect. Check the feed address, key and network, then try again.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        if (busy || disposed)
+        {
+            return;
+        }
+        busy = true;
+        try
+        {
+            await Connection.DisconnectAsync();
+            feedback = "Disconnected. Saved settings are kept for next time.";
+        }
+        catch (Exception)
+        {
+            feedback = "Could not finish disconnecting. Try again.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task ForgetAsync()
+    {
+        if (busy || disposed)
+        {
+            return;
+        }
+        busy = true;
+        feedback = null;
+        storageFeedback = null;
+        try
+        {
+            try
+            {
+                await Connection.DisconnectAsync();
+                feedback = "Disconnected.";
+            }
+            catch (Exception)
+            {
+                feedback = "Could not finish disconnecting. Use Disconnect to try again.";
+            }
+            feedDraft = string.Empty;
+            authDraft = string.Empty;
+            Connection.ClearLog();
+            try
+            {
+                var forgetError = await Storage.ForgetAsync();
+                storageFeedback = forgetError is null ? null : "Saved settings could not be removed. Try Forget again, or clear this site's browser data.";
+                if (forgetError is null)
+                {
+                    feedback += " Saved settings removed.";
+                }
+            }
+            catch (Exception)
+            {
+                storageFeedback = "Saved settings could not be removed. Try Forget again, or clear this site's browser data.";
+            }
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void TogglePanel(string id)
+    {
+        if (!expandedPanels.Add(id))
+        {
+            expandedPanels.Remove(id);
+        }
+    }
+
+    private void ConnectionChanged()
+    {
+        if (!disposed)
+        {
+            _ = InvokeAsync(() =>
+            {
+                if (!disposed)
+                {
+                    StateHasChanged();
+                }
+            });
+        }
+    }
+
+    [JSInvokable]
+    public async Task Resume()
+    {
+        if (!disposed)
+        {
+            await Connection.ResumeAsync();
+        }
+    }
+
+    [JSInvokable]
+    public async Task Offline()
+    {
+        if (!disposed)
+        {
+            await Connection.SetOfflineAsync();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        Connection.Changed -= ConnectionChanged;
+        try
+        {
+            if (lifecycle is not null)
+            {
+                await lifecycle.InvokeVoidAsync("unwatch");
+                await lifecycle.DisposeAsync();
+            }
+        }
+        catch (JSException)
+        {
+            // The browser may already have released its JS context during navigation.
+        }
+        finally
+        {
+            self?.Dispose();
+        }
+    }
+}

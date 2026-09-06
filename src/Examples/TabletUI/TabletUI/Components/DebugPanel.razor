@@ -1,0 +1,54 @@
+@inherits CommandPanelBase
+
+<p class="panel-intro">Send a message and see what this tablet sends and receives.</p>
+<div class="debug-composer">
+    <label for="debug-content-type" class="form-label">Content type</label>
+    <input id="debug-content-type" class="form-control mono-input" @bind="contentType" @bind:event="oninput"
+           spellcheck="false" autocomplete="off" />
+    <label for="debug-body" class="form-label">Message</label>
+    <textarea id="debug-body" class="form-control mono-input" rows="5" @bind="body" @bind:event="oninput"
+              spellcheck="false" placeholder="Write a message, including line breaks…" aria-describedby="debug-body-help"></textarea>
+    <p id="debug-body-help" class="panel-hint">Text and line breaks are sent as entered. Received text is shown safely below.</p>
+    <div class="button-row">
+        <button type="button" class="btn btn-primary" disabled="@SendDisabled"
+                @onclick="() => SendAsync(body, contentType)">@(Sending ? "Sending…" : "Send message")</button>
+        <button type="button" class="btn btn-outline-secondary" disabled="@(body.Length == 0 || Sending)"
+                @onclick="() => body = string.Empty">Clear message</button>
+    </div>
+    <div class="send-feedback @(SendFailed ? "feedback-error" : "")" role="status" aria-live="polite">@SendFeedback</div>
+</div>
+<div class="log-heading">
+    <h3 id="communication-heading">Communication</h3>
+    <button type="button" class="btn btn-outline-secondary" disabled="@(Connection.Entries.Count == 0)"
+            @onclick="Connection.ClearLog">Clear log</button>
+</div>
+<p class="panel-hint">Recent activity on this tablet. Counts refer to reader queues, not confirmation from the player.</p>
+<div class="communication-log" role="region" aria-labelledby="communication-heading" tabindex="0">
+    @if (Connection.Entries.Count == 0)
+    {
+        <p class="empty-log">No activity yet. Connect to a feed to get started.</p>
+    }
+    else
+    {
+        @foreach (var entry in Connection.Entries)
+        {
+            <article class="log-entry">
+                <div class="log-meta">
+                    <time datetime="@entry.Timestamp.ToString("O", CultureInfo.InvariantCulture)">@entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)</time>
+                    <span class="log-direction">@entry.Direction</span>
+                </div>
+                <p class="log-detail">@entry.Detail</p>
+                @if (!string.IsNullOrEmpty(entry.ContentType))
+                {
+                    <p class="log-content-type">@entry.ContentType</p>
+                }
+                <pre>@entry.Preview</pre>
+            </article>
+        }
+    }
+</div>
+
+@code {
+    private string contentType = "text/plain; charset=utf-8";
+    private string body = string.Empty;
+}

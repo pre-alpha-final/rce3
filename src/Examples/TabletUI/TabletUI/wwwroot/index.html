@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#17645a" />
+    <meta name="description" content="A touch-friendly remote for your RCE3 feed, with YouTube controls and a message debug panel." />
+    <title>TabletUI · Your feed remote</title>
+    <base href="/" />
+    <link rel="preload" id="webassembly" />
+    <link rel="preload" href="vendor/fonts/Neucha.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="stylesheet" href="vendor/fonts/fonts.css" />
+    <link rel="stylesheet" href="vendor/sketchy/bootstrap.min.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link href="manifest.webmanifest" rel="manifest" />
+    <link rel="icon" type="image/svg+xml" href="icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
+    <script type="importmap"></script>
+</head>
+<body>
+    <div id="app">
+        <div class="boot-screen" role="status">
+            <img src="icon.svg" alt="" width="96" height="96" />
+            <h1>TabletUI</h1>
+            <p>Getting your remote ready…</p>
+            <progress aria-label="Loading TabletUI"></progress>
+        </div>
+    </div>
+    <div id="blazor-error-ui" role="alert">
+        Something interrupted the remote.
+        <a href="." class="reload">Reload to reconnect</a>
+        <button type="button" class="dismiss" aria-label="Dismiss error">×</button>
+    </div>
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+    <script>navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+@inherits CommandPanelBase
+
+<p class="panel-intro">Your video controls, one tap away.</p>
+<div class="youtube-controls" aria-label="YouTube commands">
+    @foreach (var action in YoutubeCommands.All)
+    {
+        <button @key="action.Body" type="button" class="btn btn-outline-dark command-button @(action.Body == "youtube: playpause" ? "command-play" : "")"
+                disabled="@SendDisabled" @onclick="() => SendAsync(action.Body, TextContentType)">
+            <svg viewBox="0 0 24 24" class="command-icon" aria-hidden="true" focusable="false">
+                @if (action.Body == "youtube: playpause")
+                {
+                    <path d="M3 4 13 12 3 20ZM15 4h3v16h-3ZM20 4h3v16h-3Z" />
+                }
+                else if (action.Body.StartsWith("youtube: back", StringComparison.Ordinal))
+                {
+                    <path d="M12 4 2 12 12 20ZM22 4 12 12 22 20Z" />
+                }
+                else
+                {
+                    <path d="M2 4 12 12 2 20ZM12 4 22 12 12 20Z" />
+                }
+            </svg>
+            <span>@action.Label</span>
+        </button>
+    }
+</div>
+<p class="panel-hint">Connect the player to this same feed before sending a command.</p>
+@if (!Connection.CanSend)
+{
+    <p class="connection-hint">Connect in Settings to enable the controls.</p>
+}
+<div class="send-feedback @(SendFailed ? "feedback-error" : "")" role="status" aria-live="polite">
+    @(Sending ? "Sending command…" : SendFeedback)
+</div>
+
+@code {
+    private const string TextContentType = "text/plain; charset=utf-8";
+}

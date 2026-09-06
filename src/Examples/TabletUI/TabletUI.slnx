@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="TabletUI.Tests/TabletUI.Tests.csproj" />
+  <Project Path="TabletUI/TabletUI.csproj" />
+</Solution>
