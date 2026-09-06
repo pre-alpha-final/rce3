@@ -8,51 +8,57 @@ namespace FeedServer.Tests;
 
 public class FeedEndpointTests
 {
-    [Fact]
-    public async Task Root_CreatesRandomFeedAndRedirectsToIt()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("ignored-key")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("first", "second")]
+    public async Task Root_RedirectsToFreshHelpWithoutCreatingFeedOrReadingAuthorization(
+        string? authorization, string? secondAuthorization = null)
     {
         using var factory = CreateFactory();
         using var client = CreateClient(factory);
+        var store = (FeedStore)factory.Services.GetService(typeof(FeedStore))!;
+        var feedIds = new HashSet<Guid>();
 
-        using var response = await client.GetAsync("/");
+        foreach (var protectFeed in new[] { false, true })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "/");
+            if (authorization is not null)
+            {
+                request.Headers.TryAddWithoutValidation("Authorization",
+                    secondAuthorization is null ? [authorization] : [authorization, secondAuthorization]);
+            }
 
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.NotNull(response.Headers.Location);
-        var feedPath = response.Headers.Location!.OriginalString.TrimStart('/');
-        Assert.True(Guid.TryParse(feedPath, out _));
-        var readerId = Guid.NewGuid();
+            using var response = await client.SendAsync(request);
 
-        await AssertStatusAsync(client.GetAsync(response.Headers.Location), HttpStatusCode.OK);
-        await AssertStatusAsync(
-            SendAsync(client, HttpMethod.Get, response.Headers.Location!.OriginalString, "unexpected-key"),
-            HttpStatusCode.OK);
-        await AssertStatusAsync(
-            SendAsync(client, HttpMethod.Get, $"/{feedPath}/{readerId}/reset", "unexpected-key"),
-            HttpStatusCode.Forbidden);
-    }
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.NotNull(response.Headers.Location);
+            var feedPath = response.Headers.Location!.OriginalString;
+            Assert.True(Guid.TryParse(feedPath.TrimStart('/'), out var feedId));
+            Assert.Equal($"/{feedId:D}", feedPath);
+            Assert.True(feedIds.Add(feedId));
+            Assert.Null(store.AuthorizeExisting(feedId, key: null));
 
-    [Fact]
-    public async Task Root_WithAuthorizationCreatesProtectedFeed()
-    {
-        using var factory = CreateFactory();
-        using var client = CreateClient(factory);
+            using var help = await client.GetAsync(response.Headers.Location);
+            Assert.Equal(HttpStatusCode.OK, help.StatusCode);
+            Assert.Equal("text/plain", help.Content.Headers.ContentType?.MediaType);
+            Assert.Contains("Return this help without creating, touching, or authorizing the feed.",
+                await help.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+            Assert.Null(store.AuthorizeExisting(feedId, key: null));
 
-        using var response = await SendAsync(client, HttpMethod.Get, "/", "secret");
-
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.NotNull(response.Headers.Location);
-        var readerId = Guid.NewGuid();
-
-        await AssertStatusAsync(client.GetAsync(response.Headers.Location), HttpStatusCode.OK);
-        await AssertStatusAsync(
-            SendAsync(client, HttpMethod.Get, response.Headers.Location!.OriginalString, "wrong-key"),
-            HttpStatusCode.OK);
-        await AssertStatusAsync(
-            client.GetAsync($"{response.Headers.Location!.OriginalString}/{readerId}/reset"),
-            HttpStatusCode.Unauthorized);
-        await AssertRedirectAsync(
-            SendAsync(client, HttpMethod.Get, $"{response.Headers.Location!.OriginalString}/{readerId}/reset", "secret"),
-            $"{response.Headers.Location!.OriginalString}/{readerId:D}");
+            var readerPath = $"{feedPath}/{Guid.NewGuid():D}";
+            await AssertRedirectAsync(
+                SendAsync(client, HttpMethod.Get, $"{readerPath}/reset",
+                    protectFeed ? "chosen-key" : null),
+                readerPath);
+            await AssertStatusAsync(
+                protectFeed
+                    ? client.GetAsync($"{readerPath}/reset")
+                    : SendAsync(client, HttpMethod.Get, $"{readerPath}/reset", "unexpected-key"),
+                protectFeed ? HttpStatusCode.Unauthorized : HttpStatusCode.Forbidden);
+        }
     }
 
     [Fact]

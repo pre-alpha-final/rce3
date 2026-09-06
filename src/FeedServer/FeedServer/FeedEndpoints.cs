@@ -18,7 +18,7 @@ public static class FeedEndpoints
 
     public static void Map(WebApplication app)
     {
-        app.MapGet("/", CreateFeed);
+        app.MapGet("/", RedirectToNewFeed);
         app.MapGet("/{feedGuid}", GetFeed);
         app.MapPost("/{feedGuid}", PostFeed);
         app.MapGet("/{feedGuid}/admin", GetAdmin);
@@ -27,16 +27,9 @@ public static class FeedEndpoints
         app.MapMethods("/{*path}", SupportedMethods, BadPath);
     }
 
-    private static IResult CreateFeed(HttpRequest request, FeedStore feedStore, ILogger<Program> logger)
+    private static IResult RedirectToNewFeed()
     {
-        var feedId = Guid.NewGuid();
-        var access = GetFeedAccess(request, feedStore, feedId, logger);
-        if (!access.Succeeded)
-        {
-            return AccessFailure(access);
-        }
-
-        return Results.Redirect($"/{feedId:D}");
+        return Results.Redirect($"/{Guid.NewGuid():D}");
     }
 
     private static IResult GetFeed(

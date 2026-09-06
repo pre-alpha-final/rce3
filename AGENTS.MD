@@ -8,7 +8,7 @@ Preserve that simplicity. Do not add schemas, envelopes, message types, sender o
 
 The public API is exactly:
 
-- `GET /` creates a random feed and returns a `302` redirect to it.
+- `GET /` generates a random feed ID and returns a `302` redirect to its help without creating a feed or reading Authorization.
 - `GET /{feedGuid}` returns public plain-text help without creating, touching, or authorizing a feed.
 - `POST /{feedGuid}` publishes the raw body to all current readers.
 - `GET /{feedGuid}/admin` returns a public browser debug client without creating or touching a feed.

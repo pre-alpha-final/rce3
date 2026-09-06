@@ -13,7 +13,7 @@ RCE3's protocol revolves around two requests: readers keep a GET pending for the
 | `GET /{feedGuid}/{readerGuid}` | Create or touch a reader, then long-poll for exactly one queued message. Returns the raw message, or `204 No Content` if the poll ends without one. |
 | `POST /{feedGuid}` | Publish the raw request body to every reader that currently exists. Returns the number of reader queues that accepted the message. |
 
-A missing feed is created by the first valid request. A POST is valid for creation only after its authorization and body-size checks pass.
+A missing feed is created by the first valid POST, reader poll, or reader reset request. A POST is valid for creation only after its authorization and body-size checks pass.
 
 ### Supporting requests
 
@@ -21,14 +21,14 @@ These routes create convenient IDs, explain the service, provide a browser clien
 
 | Request | Behavior |
 | --- | --- |
-| `GET /` | Create a random feed and redirect to `/{feedGuid}`. |
-| `GET /{feedGuid}` | Return public plain-text help. |
+| `GET /` | Generate a random feed ID and redirect to `/{feedGuid}` without creating the feed. |
+| `GET /{feedGuid}` | Return public plain-text help without creating, touching, or authorizing the feed. |
 | `GET /{feedGuid}/admin` | Open a browser debug client without creating or touching the feed. |
 | `GET /{feedGuid}/{readerGuid}/reset` | Create or reset a reader, discard its queued messages, make it usable after overflow, and redirect to the reader URL. |
 
 ## Authorization
 
-The first valid feed request fixes a feed's access mode until that feed expires:
+Root, help, and admin requests ignore Authorization and leave feed state unchanged. The first valid POST, reader poll, or reader reset request fixes a feed's access mode until that feed expires:
 
 - No `Authorization` header creates an open feed. Open feeds reject requests that include the header with `403 Forbidden`.
 - One non-empty `Authorization: <key>` header creates a protected feed. Protected feeds return `401 Unauthorized` for a missing or mismatched key.
@@ -38,7 +38,7 @@ The first valid feed request fixes a feed's access mode until that feed expires:
 
 - `200 OK`: help, admin page, accepted POST, or delivery of one message.
 - `204 No Content`: long-poll timeout, cancellation, feed expiration, reset, or shutdown when no message was delivered.
-- `302 Found`: feed creation or reader reset redirect.
+- `302 Found`: random feed URL or reader reset redirect.
 - `400 Bad Request`: malformed GUID or path.
 - `401 Unauthorized`: invalid Authorization header or failed protected-feed authorization.
 - `403 Forbidden`: an Authorization header was sent to an open feed.
