@@ -53,7 +53,7 @@ The static host and the feed must both be reachable from the mobile device over 
 
 Use the browser's installation/Add to Home Screen feature after the initial online load. Installation controls vary by browser. The published service worker caches application files, including locally bundled Sketchy CSS and fonts. Development runs intentionally do not cache the application. After a successful published online load, reopening offline loads the interface; sending requires a working connection.
 
-The service worker never caches or replays feed traffic, including same-origin requests. App updates activate after old app windows close; close all TabletUI windows and reopen online to use a newly published version. Keep serving the full published asset set together.
+The service worker never caches or replays feed traffic, including same-origin requests. App updates activate after old app windows close; close all TabletUI windows and reopen online to use a newly published version. Keep serving the full published asset set together. Cached home-page responses remain usable when the static host redirects `index.html` to the app root. If browser cache access fails, the worker falls back to the network; offline loading requires readable cached assets. After deploying this fix, visit online, close all TabletUI tabs and installed app windows, then reopen so the updated worker can activate.
 
 ## Add or remove app support
 

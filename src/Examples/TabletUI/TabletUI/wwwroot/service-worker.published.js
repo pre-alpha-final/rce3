@@ -28,10 +28,25 @@ self.addEventListener('fetch', event => {
     if (request.method !== 'GET' || request.cache === 'no-store') return;
     const url = new URL(request.url);
     const isHome = request.mode === 'navigate' && url.origin === baseUrl.origin
-        && (url.pathname === baseUrl.pathname || url.href === indexUrl);
+        && (url.pathname === baseUrl.pathname || url.pathname === new URL(indexUrl).pathname);
     if (!isHome && !assetUrls.has(url.href)) return;
     event.respondWith((async () => {
-        const cache = await caches.open(cacheName);
-        return await cache.match(isHome ? indexUrl : request) || fetch(request);
+        try {
+            const cache = await caches.open(cacheName);
+            const response = await cache.match(isHome ? indexUrl : request);
+            if (response) {
+                // Hosts can redirect index.html to the app root. A redirected cached
+                // response cannot satisfy a navigation whose redirect mode is manual.
+                if (isHome && response.redirected) {
+                    return new Response(response.body, {
+                        status: response.status, statusText: response.statusText, headers: response.headers
+                    });
+                }
+                return response;
+            }
+        } catch {
+            // Unavailable browser storage must not prevent an online load.
+        }
+        return fetch(request);
     })());
 });
