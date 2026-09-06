@@ -13,7 +13,7 @@
     </div>
     <div class="header-actions">
         <div class="connection-status" role="status" aria-live="polite">
-            <span class="status-dot @(Connection.CanSend ? "status-ready" : "")" aria-hidden="true"></span>
+            <span class="status-dot @(Connection.IsConnected ? "status-ready" : "")" aria-hidden="true"></span>
             <span>@Connection.Status</span>
         </div>
         <button type="button" class="btn btn-outline-dark settings-button" aria-controls="connection-settings"
@@ -54,8 +54,8 @@
                 </div>
             </fieldset>
         </form>
-        <p class="panel-hint status-help">Connected means this tablet can send to the feed; it does not confirm the player is online.
-            If the connection drops, controls pause until it is ready again.</p>
+        <p class="panel-hint status-help">Connected means a feed request is active without a reported failure; it does not confirm the player is online.
+            Long waits for messages are normal. Controls pause while offline or waiting to retry after an error.</p>
     </section>
     <div class="page-feedback" role="status" aria-live="polite">
         @if (!string.IsNullOrEmpty(feedback))

@@ -11,7 +11,7 @@ dotnet run --project src/FeedServer/FeedServer/FeedServer.csproj --no-launch-pro
 dotnet run --project src/Examples/TabletUI/TabletUI/TabletUI.csproj --launch-profile http
 ```
 
-Open `http://localhost:5218`. Enter the feed URL and optional raw authorization key in Connection, then connect. The browser creates a fresh reader using reset and follows its redirect before enabling sends. With an empty feed this can take one poll timeout (30 seconds by default).
+Open `http://localhost:5218`. Enter the feed URL and optional raw authorization key in Connection, then connect. The browser creates a fresh reader using reset and follows its redirect into a long poll. Controls are enabled while that request is pending; an idle feed does not need to produce a message or finish a poll timeout first. Connected means the request is active without a reported failure, not that server acceptance or player availability has been confirmed.
 
 Start the [YouTube listener](../Youtube/README.MD) on its Windows device **before** sending commands. Keep the YouTube player focused on that device. Use the same `RCE3_FEED` and optional `RCE3_AUTH` values for the listener and TabletUI. The static browser app cannot read operating-system environment variables; enter these values through its connection form. Do not put populated values in source, published configuration, or a URL.
 
@@ -37,7 +37,7 @@ Disconnect ends the active reader loop but retains settings. Forget connection d
 
 TabletUI calls the existing RCE3 GET/POST/reset routes directly, with browser credentials omitted and HTTP caching disabled. RCE3 includes wildcard CORS support for GET/POST and Authorization/Content-Type headers. It answers browser preflights without touching feeds. CORS does not change open/protected feed authorization.
 
-Each session has one reader. Polling continues while Debug is collapsed. A redirected reset response that contains a message is recorded rather than discarded. HTTP 204 starts another poll; HTTP 410 resets the overflowed reader. Transient failures retry with exponential delays from 2 to 30 seconds. Authorization failures stop the connection until settings are corrected and Connect is used again.
+Each session has one reader. Polling continues while Debug is collapsed. A redirected reset response that contains a message is recorded rather than discarded. HTTP 204 starts another poll; HTTP 410 resets the overflowed reader. Transient failures disable controls while waiting to retry, with exponential delays from 2 to 30 seconds. Starting the next request restores Connected and enables controls immediately, even if its response takes a long time. Polls have no client timeout; a pending response is normal. Authorization failures stop the connection until settings are corrected and Connect is used again.
 
 Coming online or returning to the page interrupts the current polling wait and resumes the same loop. Commands are never queued offline or retried automatically. If a send is interrupted, its delivery is unknown. RCE3 does not retain pre-subscription history, and an expired feed or reset reader can lose queued messages. Your own sends also appear as received messages.
 

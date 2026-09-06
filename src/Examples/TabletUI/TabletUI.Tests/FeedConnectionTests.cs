@@ -19,8 +19,8 @@ public sealed class FeedConnectionTests
         Assert.EndsWith("/reset", reset.Uri.AbsolutePath);
         var readerUrl = reset.Uri.AbsoluteUri[..^"/reset".Length];
         Assert.True(Guid.TryParse(readerUrl[(readerUrl.LastIndexOf('/') + 1)..], out _));
-        Assert.False(h.Connection.CanSend);
-        Assert.Null(await h.Connection.PublishAsync("too early", "text/plain"));
+        Assert.True(h.Connection.CanSend);
+        Assert.Equal("Connected", h.Connection.Status);
         Assert.Equal(1, h.Handler.RequestCount);
         Assert.Equal(["test-only raw authorization"], reset.Authorization);
 
@@ -46,6 +46,27 @@ public sealed class FeedConnectionTests
     }
 
     [Fact]
+    public async Task Pending_initial_reset_allows_sending_without_waiting_for_a_message()
+    {
+        await using var h = new ConnectionHarness();
+        await h.ConnectAsync();
+        var reset = await h.Handler.NextAsync();
+        Assert.False(reset.Response.Task.IsCompleted);
+        Assert.True(h.Connection.IsConnected);
+        var sending = h.Connection.PublishAsync("command", "text/plain");
+        var post = await h.Handler.NextAsync();
+        Assert.Equal(HttpMethod.Post, post.Method);
+        Assert.False(h.Connection.CanSend);
+        Assert.True(h.Connection.IsConnected);
+        Assert.Equal("Connected", h.Connection.Status);
+        post.Reply(HttpStatusCode.OK, "Message distributed to 1 reader(s)."u8.ToArray());
+        Assert.Equal(1, await sending);
+        Assert.True(h.Connection.CanSend);
+        Assert.False(reset.Response.Task.IsCompleted);
+        Assert.Equal(1, h.Handler.ActiveGets);
+    }
+
+    [Fact]
     public async Task No_content_continues_same_reader_without_logging_a_message()
     {
         await using var h = new ConnectionHarness();
@@ -66,7 +87,8 @@ public sealed class FeedConnectionTests
         poll.Reply(HttpStatusCode.Gone);
         var reset = await h.Handler.NextAsync();
         Assert.Equal(poll.Uri.AbsoluteUri + "/reset", reset.Uri.AbsoluteUri);
-        Assert.False(h.Connection.CanSend);
+        Assert.True(h.Connection.CanSend);
+        Assert.Equal("Connected", h.Connection.Status);
         Assert.Contains(h.Connection.Entries, e => e.Detail.Contains("resetting"));
         reset.Reply(HttpStatusCode.NoContent);
         var next = await h.Handler.NextAsync();
@@ -129,7 +151,8 @@ public sealed class FeedConnectionTests
         request.Reply((HttpStatusCode)status);
         var retry = await h.Handler.NextAsync();
         Assert.Equal(request.Uri, retry.Uri);
-        Assert.False(h.Connection.CanSend);
+        Assert.True(h.Connection.CanSend);
+        Assert.Equal("Connected", h.Connection.Status);
         Assert.Contains(h.Connection.Entries, e => e.Detail.Contains($"HTTP {status}") && e.Detail.Contains("retrying"));
         retry.Reply(HttpStatusCode.NoContent);
         var next = await h.Handler.NextAsync();
@@ -155,11 +178,39 @@ public sealed class FeedConnectionTests
         });
         var retry = await h.Handler.NextAsync();
         Assert.Equal(poll.Uri, retry.Uri);
+        Assert.True(h.Connection.CanSend);
+        Assert.Equal("Connected", h.Connection.Status);
         Assert.Contains(h.Connection.Entries, e => e.Detail.Contains("retrying"));
         Assert.All(h.Connection.Entries, e => Assert.DoesNotContain(sensitive, e.ToString()));
         retry.Reply(HttpStatusCode.NoContent);
         await h.Handler.NextAsync();
         Assert.True(h.Connection.CanSend);
+    }
+
+    [Fact]
+    public async Task Failure_pauses_controls_during_backoff_and_resume_restores_them_before_response()
+    {
+        await using var h = new ConnectionHarness(retryDelay: TimeSpan.FromSeconds(30));
+        var poll = await h.ReadyAsync();
+        var reconnecting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Connection.Changed += () =>
+        {
+            if (h.Connection.Status == "Reconnecting") { reconnecting.TrySetResult(); }
+        };
+        poll.Reply(HttpStatusCode.ServiceUnavailable);
+        await reconnecting.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(h.Connection.IsConnected);
+        Assert.False(h.Connection.CanSend);
+        Assert.Null(await h.Connection.PublishAsync("blocked", "text/plain"));
+        Assert.Equal(2, h.Handler.RequestCount);
+
+        await h.Connection.ResumeAsync();
+        var retry = await h.Handler.NextAsync();
+        Assert.Equal(poll.Uri, retry.Uri);
+        Assert.False(retry.Response.Task.IsCompleted);
+        Assert.True(h.Connection.CanSend);
+        Assert.Equal("Connected", h.Connection.Status);
+        Assert.Equal(1, h.Handler.MaxActiveGets);
     }
 
     [Fact]
@@ -192,7 +243,8 @@ public sealed class FeedConnectionTests
             await poll.WaitForCancellationAsync();
             poll = await h.Handler.NextAsync();
             Assert.Equal(reader, poll.Uri);
-            Assert.False(h.Connection.CanSend);
+            Assert.True(h.Connection.CanSend);
+            Assert.Equal("Connected", h.Connection.Status);
             poll.Reply(HttpStatusCode.NoContent);
             poll = await h.Handler.NextAsync();
             Assert.True(h.Connection.CanSend);
@@ -217,6 +269,8 @@ public sealed class FeedConnectionTests
         await h.Connection.ResumeAsync();
         var next = await h.Handler.NextAsync();
         Assert.Equal(poll.Uri, next.Uri);
+        Assert.True(h.Connection.CanSend);
+        Assert.Equal("Connected", h.Connection.Status);
         next.Reply(HttpStatusCode.NoContent);
         await h.Handler.NextAsync();
         Assert.True(h.Connection.CanSend);

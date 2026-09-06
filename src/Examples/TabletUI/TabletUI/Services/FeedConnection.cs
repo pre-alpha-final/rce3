@@ -18,7 +18,8 @@ public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider,
 
     public event Action? Changed;
     public string Status => _status;
-    public bool CanSend => _session is { Ready: true } && _online && !_sending;
+    public bool IsConnected => _session is { Ready: true } && _online;
+    public bool CanSend => IsConnected && !_sending;
     public IReadOnlyList<CommunicationEntry> Entries
     {
         get { lock (_entries) { return _entries.ToArray(); } }
@@ -178,6 +179,11 @@ public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider,
                 }
 
                 using var request = CreateRequest(session, HttpMethod.Get, session.ReaderUrl + (reset ? "/reset" : ""));
+                // Reset redirects into a long poll in the browser. Waiting for its response
+                // would disable controls on an idle feed, including after reconnecting.
+                // Treat an active request as connected unless it reports a failure.
+                session.Ready = true;
+                SetStatus("Connected");
                 using var response = await client.SendAsync(request, interruption.Token);
                 if (response.StatusCode is HttpStatusCode.OK or HttpStatusCode.NoContent
                     || (reset && response.StatusCode == HttpStatusCode.Found))

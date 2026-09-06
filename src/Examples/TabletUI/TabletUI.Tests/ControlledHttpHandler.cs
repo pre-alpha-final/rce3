@@ -86,10 +86,10 @@ internal sealed class ConnectionHarness : IAsyncDisposable
     public HttpClient Client { get; }
     public FeedConnection Connection { get; }
 
-    public ConnectionHarness()
+    public ConnectionHarness(TimeSpan? retryDelay = null)
     {
         Client = new HttpClient(Handler) { Timeout = Timeout.InfiniteTimeSpan };
-        Connection = new FeedConnection(Client, TimeProvider.System, retryDelay: TimeSpan.Zero);
+        Connection = new FeedConnection(Client, TimeProvider.System, retryDelay: retryDelay ?? TimeSpan.Zero);
     }
 
     public Task ConnectAsync(string auth = "") => Connection.ConnectAsync(new(1, Feed, auth));
