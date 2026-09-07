@@ -1,13 +1,13 @@
 // Keep installed apps current even when Android keeps their windows alive.
 if ('serviceWorker' in navigator) {
-    let controlled = Boolean(navigator.serviceWorker.controller);
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (controlled && !reloading) {
+        // Also reload on the first successful claim: an older page may have
+        // been running without a worker because its installation failed.
+        if (!reloading) {
             reloading = true;
             window.location.reload();
         }
-        controlled = true;
     });
 
     navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' })

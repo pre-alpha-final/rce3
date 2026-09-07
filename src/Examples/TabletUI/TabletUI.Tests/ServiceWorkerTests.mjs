@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../TabletUI/wwwroot/service-worker.published.js', import.meta.url), 'utf8');
+const assetBody = 'published asset';
+const assetHash = 'sha256-' + createHash('sha256').update(assetBody).digest('base64');
 function worker(options = {}) {
     const listeners = new Map();
     const fetched = [];
@@ -19,8 +22,8 @@ function worker(options = {}) {
             async skipWaiting() { lifecycleSteps.push("skipWaiting"); },
             clients: { async claim() { lifecycleSteps.push("claim"); } },
             assetsManifest: { version: 'new', assets: [
-                { url: 'index.html', hash: '' }, { url: '_framework/runtime.wasm', hash: '' },
-                { url: 'vendor/font.woff2', hash: '' }, { url: 'service-worker.js', hash: '' }
+                { url: 'index.html', hash: assetHash }, { url: '_framework/runtime.wasm', hash: assetHash },
+                { url: 'vendor/font.woff2', hash: assetHash }, { url: 'service-worker.js', hash: assetHash }
             ] },
             addEventListener: (name, callback) => listeners.set(name, callback)
         },
@@ -30,6 +33,12 @@ function worker(options = {}) {
                 return {
                 async addAll(requests) {
                     if (options.installError) throw new Error("Incomplete release");
+                    for (const request of requests) {
+                        const changed = new URL(request.url).pathname.endsWith(options.changedAsset || '/never');
+                        const body = changed ? assetBody + '<script>host injection</script>' : assetBody;
+                        const hash = 'sha256-' + createHash('sha256').update(body).digest('base64');
+                        if (request.integrity && request.integrity !== hash) throw new TypeError('Integrity mismatch');
+                    }
                     installed.push(...requests);
                     lifecycleSteps.push("cached");
                 },
@@ -190,10 +199,10 @@ test('replacement controller reloads the running app only once', async () => {
     assert.equal(client.state.reloads, 1);
 });
 
-test('first installation does not reload, but its subsequent update does', async () => {
+test('first successful installation reloads an older uncontrolled page once', async () => {
     const client = await updateClient({ controlled: false });
     client.events.get('worker:controllerchange')();
-    assert.equal(client.state.reloads, 0);
+    assert.equal(client.state.reloads, 1);
     client.events.get('worker:controllerchange')();
     assert.equal(client.state.reloads, 1);
 });
@@ -222,4 +231,19 @@ test('failed checks can retry and registration failures are handled', async () =
     const unavailable = await updateClient({ registerError: true });
     assert.equal(unavailable.state.checks, 0);
     vm.runInNewContext(updateSource, { navigator: {} });
+});
+
+test('host-injected HTML does not prevent the release from activating', async () => {
+    const w = worker({ changedAsset: 'index.html' });
+    await w.lifecycle('install');
+    assert.equal(w.installed[0].integrity, '');
+    assert.ok(w.installed.slice(1).every(request => request.integrity === assetHash));
+    assert.deepEqual(w.lifecycleSteps, ['cached', 'skipWaiting']);
+});
+
+test('changed non-HTML assets still fail installation and preserve the active release', async () => {
+    const w = worker({ changedAsset: 'runtime.wasm' });
+    await assert.rejects(w.lifecycle('install'), /Integrity mismatch/);
+    assert.deepEqual(w.lifecycleSteps, []);
+    assert.deepEqual(w.removed, []);
 });

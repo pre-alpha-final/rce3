@@ -10,7 +10,9 @@ const indexUrl = new URL('index.html', baseUrl).href;
 self.addEventListener('install', event => event.waitUntil((async () => {
     const cache = await caches.open(cacheName);
     await cache.addAll(assets.map(asset => new Request(new URL(asset.url, baseUrl), {
-        integrity: asset.hash, cache: 'no-cache'
+        // Sites/Cloudflare can inject scripts into HTML after publication.
+        // Validate other assets, but accept the host's transformed app shell.
+        integrity: asset.url === 'index.html' ? '' : asset.hash, cache: 'no-cache'
     })));
     // Activate only after the complete release has been cached successfully.
     await self.skipWaiting();
