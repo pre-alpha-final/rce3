@@ -9,13 +9,15 @@ function worker(options = {}) {
     const fetched = [];
     const installed = [];
     const removed = [];
+    const lifecycleSteps = [];
     const scope = 'https://tablet.example/remote/';
     const context = {
         URL, Request, Response,
         self: {
             location: { href: scope + 'service-worker.js' },
             importScripts() {},
-            clients: { async claim() {} },
+            async skipWaiting() { lifecycleSteps.push("skipWaiting"); },
+            clients: { async claim() { lifecycleSteps.push("claim"); } },
             assetsManifest: { version: 'new', assets: [
                 { url: 'index.html', hash: '' }, { url: '_framework/runtime.wasm', hash: '' },
                 { url: 'vendor/font.woff2', hash: '' }, { url: 'service-worker.js', hash: '' }
@@ -26,7 +28,11 @@ function worker(options = {}) {
             async open() {
                 if (options.openError) throw new Error('Cache unavailable');
                 return {
-                async addAll(requests) { installed.push(...requests); },
+                async addAll(requests) {
+                    if (options.installError) throw new Error("Incomplete release");
+                    installed.push(...requests);
+                    lifecycleSteps.push("cached");
+                },
                 async match(request) {
                     if (options.matchError) throw new Error('Cache read failed');
                     if (options.cacheMiss) return undefined;
@@ -55,7 +61,7 @@ function worker(options = {}) {
         listeners.get(name)({ waitUntil(value) { pending = value; } });
         await pending;
     }
-    return { fetchEvent, lifecycle, installed, removed, fetched, scope };
+    return { fetchEvent, lifecycle, installed, removed, fetched, scope, lifecycleSteps };
 }
 
 test('feed traffic always bypasses the worker, even same-origin or asset-shaped URLs', () => {
@@ -123,4 +129,97 @@ test('a healthy cache still serves the app when offline', async () => {
     const w = worker({ offline: true });
     assert.deepEqual(await w.fetchEvent(w.scope, { mode: 'navigate' }), { cached: w.scope + 'index.html' });
     assert.equal(w.fetched.length, 0);
+});
+
+test('a complete release activates without waiting for old windows to close', async () => {
+    const w = worker();
+    await w.lifecycle('install');
+    assert.deepEqual(w.lifecycleSteps, ['cached', 'skipWaiting']);
+    await w.lifecycle('activate');
+    assert.deepEqual(w.lifecycleSteps, ['cached', 'skipWaiting', 'claim']);
+});
+
+test('an incomplete release never skips waiting or removes the current cache', async () => {
+    const w = worker({ installError: true });
+    await assert.rejects(w.lifecycle('install'), /Incomplete release/);
+    assert.deepEqual(w.lifecycleSteps, []);
+    assert.deepEqual(w.removed, []);
+});
+
+const updateSource = await readFile(new URL('../TabletUI/wwwroot/app-updates.js', import.meta.url), 'utf8');
+async function updateClient({ controlled = true, registerError = false, updateError = false } = {}) {
+    const events = new Map();
+    const state = { reloads: 0, checks: 0 };
+    const listen = name => (event, callback) => events.set(`${name}:${event}`, callback);
+    const navigator = {
+        onLine: true,
+        serviceWorker: {
+            controller: controlled ? {} : null,
+            addEventListener: listen('worker'),
+            async register(url, options) {
+                assert.equal(url, 'service-worker.js');
+                assert.equal(options.updateViaCache, 'none');
+                if (registerError) throw new Error('Unavailable');
+                return { async update() {
+                    state.checks++;
+                    if (updateError) throw new Error('Offline');
+                } };
+            }
+        }
+    };
+    const document = { visibilityState: 'visible', addEventListener: listen('document') };
+    vm.runInNewContext(updateSource, {
+        navigator, document,
+        window: {
+            location: { reload() { state.reloads++; } },
+            addEventListener: listen('window'),
+            setInterval(callback, delay) {
+                assert.equal(delay, 60_000);
+                events.set('interval', callback);
+            }
+        }
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    return { state, navigator, document, events };
+}
+
+test('replacement controller reloads the running app only once', async () => {
+    const client = await updateClient();
+    client.events.get('worker:controllerchange')();
+    client.events.get('worker:controllerchange')();
+    assert.equal(client.state.reloads, 1);
+});
+
+test('first installation does not reload, but its subsequent update does', async () => {
+    const client = await updateClient({ controlled: false });
+    client.events.get('worker:controllerchange')();
+    assert.equal(client.state.reloads, 0);
+    client.events.get('worker:controllerchange')();
+    assert.equal(client.state.reloads, 1);
+});
+
+test('checks at startup and on resume, online, pageshow and the visible timer', async () => {
+    const client = await updateClient();
+    assert.equal(client.state.checks, 1);
+    for (const event of ['document:visibilitychange', 'window:online', 'window:pageshow', 'interval']) {
+        await client.events.get(event)();
+    }
+    assert.equal(client.state.checks, 5);
+    client.document.visibilityState = 'hidden';
+    await client.events.get('interval')();
+    assert.equal(client.state.checks, 5);
+    client.document.visibilityState = 'visible';
+    client.navigator.onLine = false;
+    await client.events.get('interval')();
+    assert.equal(client.state.checks, 5);
+});
+
+test('failed checks can retry and registration failures are handled', async () => {
+    const client = await updateClient({ updateError: true });
+    await client.events.get('window:online')();
+    assert.equal(client.state.checks, 2);
+    assert.equal(client.state.reloads, 0);
+    const unavailable = await updateClient({ registerError: true });
+    assert.equal(unavailable.state.checks, 0);
+    vm.runInNewContext(updateSource, { navigator: {} });
 });

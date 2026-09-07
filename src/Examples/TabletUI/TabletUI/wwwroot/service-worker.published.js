@@ -12,6 +12,8 @@ self.addEventListener('install', event => event.waitUntil((async () => {
     await cache.addAll(assets.map(asset => new Request(new URL(asset.url, baseUrl), {
         integrity: asset.hash, cache: 'no-cache'
     })));
+    // Activate only after the complete release has been cached successfully.
+    await self.skipWaiting();
 })()));
 
 self.addEventListener('activate', event => event.waitUntil((async () => {

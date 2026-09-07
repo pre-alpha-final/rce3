@@ -53,7 +53,11 @@ The static host and the feed must both be reachable from the mobile device over 
 
 Use the browser's installation/Add to Home Screen feature after the initial online load. Installation controls vary by browser. The published service worker caches application files, including locally bundled Sketchy CSS and fonts. Development runs intentionally do not cache the application. After a successful published online load, reopening offline loads the interface; sending requires a working connection.
 
-The service worker never caches or replays feed traffic, including same-origin requests. App updates activate after old app windows close; close all TabletUI windows and reopen online to use a newly published version. Keep serving the full published asset set together. Cached home-page responses remain usable when the static host redirects `index.html` to the app root. If browser cache access fails, the worker falls back to the network; offline loading requires readable cached assets. After deploying this fix, visit online, close all TabletUI tabs and installed app windows, then reopen so the updated worker can activate.
+The service worker never caches or replays feed traffic, including same-origin requests. The app checks for releases on opening, returning to the foreground, reconnecting online, and every minute while visible. Once all new application files are cached successfully, the new worker activates and open clients reload once. Saved connection settings survive; unsaved input and the in-memory Debug log are cleared by the reload. Offline or failed downloads keep the current release usable.
+
+Keep serving the full published asset set together. Configure the static host to revalidate `service-worker.js`, `service-worker-assets.js`, and `index.html` (for example, `Cache-Control: no-cache`); do not give these files immutable CDN caching. Cached home-page responses remain usable when the static host redirects `index.html` to the app root. If browser cache access fails, the worker falls back to the network; offline loading requires readable cached assets.
+
+For the first upgrade from the older app, open it online and allow the new release to download, then reload once if the old footer version remains: that older page has no automatic reload listener. Clearing Chrome cache or site data is unnecessary. Later releases reload automatically; the footer GUID identifies the loaded build.
 
 ## Add or remove app support
 
