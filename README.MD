@@ -55,18 +55,6 @@ The page itself is public and does not create, authorize, inspect, or touch the 
 
 This is a debug client, not a privileged administration or monitoring interface. It displays received bodies as text and does not expose server statistics.
 
-## TabletUI example
-
-[TabletUI](src/Examples/TabletUI/README.MD) is an installable Blazor WebAssembly remote for phones and tablets. It includes YouTube controls and a live message debugger, with app panels supplied by small Razor components.
-
-## Cross-origin browser clients
-
-The server allows browser clients from any origin (`Access-Control-Allow-Origin: *`), using GET and POST with explicit `Authorization` and `Content-Type` request headers. ASP.NET Core handles CORS preflights without creating, touching, authorizing, or resetting feed state. Success and error responses carry CORS headers when an Origin is supplied.
-
-Browser clients should omit browser-managed credentials such as cookies and send an optional raw feed key explicitly in the Authorization header. `credentials: include` and `mode: no-cors` are unsupported. Feed authorization remains unchanged: any origin can access an open feed whose URL it knows; protected feeds require their key.
-
-Host an installed PWA and its feed over HTTPS with certificates trusted by the mobile device. CORS does not bypass mixed-content or certificate restrictions.
-
 ## License
 
 MIT
