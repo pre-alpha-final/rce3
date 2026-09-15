@@ -285,3 +285,6 @@ __pycache__/
 
 #Identity developer key
 /src/LastSeenWeb.AngularFront/tempkey.rsa
+
+# Per-installation example reader identity
+readerid

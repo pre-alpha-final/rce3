@@ -58,3 +58,14 @@ This is a debug client, not a privileged administration or monitoring interface.
 ## License
 
 MIT
+
+## Example app reader identities
+
+Each example installation generates its reader ID once, saves it before connecting, and reuses it across restarts. Startup polls directly; it never resets a retained queue. Overflow recovery (`410 Gone`) resets the same reader and discards its unusable queue.
+
+- Youtube and Mudslide store a plain GUID in `readerid` beside the executable, independent of the shell's current directory. The directory must be writable on first use. Preserve the file during updates and exclude it when copying an installation to another device. Invalid or inaccessible files stop startup rather than silently replacing the identity. Delete the file deliberately to start a new queue.
+- TabletUI stores its ID under `TabletUI.readerid.v1` in local storage for that browser profile and site. Reconnecting, reloading, and forgetting connection settings preserve it. Clearing site data creates a new identity. If identity storage is unavailable or invalid, connection stops with a visible error.
+
+Two running copies sharing an ID on the same feed consume from the same queue and split messages; use separate installations or browser profiles for independent readers. A reader ID can be reused on different feeds because queues are scoped to feeds.
+
+Messages queued while an app is stopped remain available only while the server retains the feed and the queue has not overflowed. Server restart, feed expiration, and overflow still lose queued messages. A message already removed by an interrupted poll is not replayed: RCE3 has no acknowledgements or durable delivery. Messages published before the first reader poll are not retained for that reader.

@@ -9,14 +9,13 @@ public class FeedListenerTests
     private static readonly Guid ReaderId = Guid.Parse("74766693-8f1a-49a9-beac-4b9c1a275bac");
 
     [Fact]
-    public async Task ResetsSendsConnectivityTestThenProcessesNotificationsInOrder()
+    public async Task SendsConnectivityTestThenPollsExistingReaderInOrder()
     {
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
-            2 => Completed(Response(HttpStatusCode.OK, "notify: first")),
-            3 => Completed(Response(HttpStatusCode.OK, "notify: second\nline")),
+            1 => Completed(Response(HttpStatusCode.OK, "notify: first")),
+            2 => Completed(Response(HttpStatusCode.OK, "notify: second\nline")),
             _ => Cancel(cancellation, token)
         });
         var sender = new RecordingNotificationSender(new CommandExecutionResult(true, 0));
@@ -27,11 +26,11 @@ public class FeedListenerTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
         Assert.Equal(["connectivity test", "first", "second\nline"], sender.Notifications);
-        Assert.Equal($"/{FeedUri.Segments[^1]}/{ReaderId:D}/reset", handler.Requests[0].Uri.AbsolutePath);
+        Assert.Equal($"/{FeedUri.Segments[^1]}/{ReaderId:D}", handler.Requests[0].Uri.AbsolutePath);
         Assert.Equal($"/{FeedUri.Segments[^1]}/{ReaderId:D}", handler.Requests[1].Uri.AbsolutePath);
         Assert.All(handler.Requests, request => Assert.Equal("raw-key", request.Authorization));
         Assert.Contains("Connecting", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Reader ready", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Polling reader", output.ToString(), StringComparison.Ordinal);
         Assert.Equal(3, output.ToString().Split("Notification sent.").Length - 1);
         Assert.DoesNotContain("raw-key", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("second\nline", output.ToString(), StringComparison.Ordinal);
@@ -43,8 +42,7 @@ public class FeedListenerTests
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
-            2 => Completed(Response(HttpStatusCode.NoContent)),
+            1 => Completed(Response(HttpStatusCode.NoContent)),
             _ => Cancel(cancellation, token)
         });
         using var client = CreateClient(handler);
@@ -56,7 +54,7 @@ public class FeedListenerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
-        Assert.Equal(3, handler.Requests.Count);
+        Assert.Equal(2, handler.Requests.Count);
         Assert.DoesNotContain("no message", output.ToString(), StringComparison.Ordinal);
     }
 
@@ -66,8 +64,7 @@ public class FeedListenerTests
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
-            2 => Completed(Response(HttpStatusCode.OK, "private ordinary message")),
+            1 => Completed(Response(HttpStatusCode.OK, "private ordinary message")),
             _ => Cancel(cancellation, token)
         });
         var sender = new RecordingNotificationSender(new CommandExecutionResult(true, 0));
@@ -88,9 +85,8 @@ public class FeedListenerTests
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
-            2 => Completed(Response(HttpStatusCode.Gone)),
-            3 => Completed(Response(HttpStatusCode.Found)),
+            1 => Completed(Response(HttpStatusCode.Gone)),
+            2 => Completed(Response(HttpStatusCode.Found)),
             _ => Cancel(cancellation, token)
         });
         using var client = CreateClient(handler);
@@ -102,20 +98,42 @@ public class FeedListenerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
-        Assert.EndsWith("/reset", handler.Requests[0].Uri.AbsolutePath, StringComparison.Ordinal);
-        Assert.EndsWith("/reset", handler.Requests[2].Uri.AbsolutePath, StringComparison.Ordinal);
+        Assert.DoesNotContain("/reset", handler.Requests[0].Uri.AbsolutePath);
+        Assert.EndsWith("/reset", handler.Requests[1].Uri.AbsolutePath, StringComparison.Ordinal);
         Assert.Contains("resetting", error.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task TransientResetAndInternalServerFailuresAreRetried()
+    public async Task OverflowResetRetriesFailuresThenResumesSameReader()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
+        {
+            1 => Completed(Response(HttpStatusCode.Gone)),
+            2 => Task.FromException<HttpResponseMessage>(new HttpRequestException("offline")),
+            3 => Completed(Response(HttpStatusCode.ServiceUnavailable)),
+            4 => Completed(Response(HttpStatusCode.Found)),
+            _ => Cancel(cancellation, token)
+        });
+        using var client = CreateClient(handler);
+        var listener = CreateListener(client, new RecordingNotificationSender(new CommandExecutionResult(true, 0)));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
+        Assert.Equal(5, handler.Requests.Count);
+        Assert.Equal(handler.Requests[0].Uri, handler.Requests[4].Uri);
+        Assert.All(handler.Requests.Skip(1).Take(3), request =>
+            Assert.Equal(handler.Requests[0].Uri.AbsoluteUri + "/reset", request.Uri.AbsoluteUri));
+    }
+
+    [Fact]
+    public async Task TransientPollFailuresAreRetriedWithoutReset()
     {
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
             1 => Task.FromException<HttpResponseMessage>(new HttpRequestException("offline")),
-            2 => Completed(Response(HttpStatusCode.Found)),
-            3 => Completed(Response(HttpStatusCode.InternalServerError)),
+            2 => Completed(Response(HttpStatusCode.RequestTimeout)),
+            3 => Completed(Response(HttpStatusCode.TooManyRequests)),
+            4 => Completed(Response(HttpStatusCode.InternalServerError)),
             _ => Cancel(cancellation, token)
         });
         using var client = CreateClient(handler);
@@ -123,8 +141,8 @@ public class FeedListenerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
-        Assert.Equal(4, handler.Requests.Count);
-        Assert.False(handler.Requests[3].Uri.AbsolutePath.EndsWith("/reset", StringComparison.Ordinal));
+        Assert.Equal(5, handler.Requests.Count);
+        Assert.All(handler.Requests, request => Assert.DoesNotContain("/reset", request.Uri.AbsolutePath));
     }
 
     [Fact]
@@ -147,9 +165,8 @@ public class FeedListenerTests
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
-            2 => Completed(Response(HttpStatusCode.OK, "notify: private notification")),
-            3 => Completed(Response(HttpStatusCode.NoContent)),
+            1 => Completed(Response(HttpStatusCode.OK, "notify: private notification")),
+            2 => Completed(Response(HttpStatusCode.NoContent)),
             _ => Cancel(cancellation, token)
         });
         var sender = new RecordingNotificationSender(new CommandExecutionResult(true, 7));
@@ -168,7 +185,7 @@ public class FeedListenerTests
         Assert.DoesNotContain("Notification sent", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("private notification", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("private-key", output.ToString(), StringComparison.Ordinal);
-        Assert.Equal(4, handler.Requests.Count);
+        Assert.Equal(3, handler.Requests.Count);
     }
 
     [Fact]
@@ -177,7 +194,6 @@ public class FeedListenerTests
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, _) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
             _ => Completed(Response(HttpStatusCode.OK, "notify: wait"))
         });
         var sender = new BlockingNotificationSender();

@@ -18,7 +18,7 @@ You can instead pass the feed URL and optional authorization value as arguments.
 dotnet run --project .\src\Examples\Youtube\Youtube\Youtube.csproj -- "http://localhost:5137/00000000-0000-0000-0000-000000000000" ""
 ```
 
-The app creates and resets a fresh reader when it starts, then listens until you press Ctrl+C. It never publishes messages.
+The app saves its reader GUID in a `readerid` file beside the executable and reuses it on restart without resetting the queue, then listens until you press Ctrl+C. It never publishes messages. Keep this file during updates; do not copy it to another installation. An invalid or unwritable identity file stops startup with an error. See the root README for the shared reader identity rule.
 
 ## Commands
 

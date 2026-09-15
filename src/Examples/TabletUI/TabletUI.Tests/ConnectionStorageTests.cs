@@ -6,6 +6,29 @@ namespace TabletUI.Tests;
 
 public sealed class ConnectionStorageTests
 {
+    [Fact]
+    public async Task Reader_identity_survives_new_service_and_forgetting_settings()
+    {
+        var js = new StorageJsRuntime();
+        var id = await new ConnectionStorage(js).LoadOrCreateReaderIdAsync();
+        Assert.NotEqual(Guid.Empty, id);
+        Assert.Equal(id.ToString("D"), js.Items[ConnectionStorage.ReaderIdStorageKey]);
+        await new ConnectionStorage(js).ForgetAsync();
+        Assert.Equal(id, await new ConnectionStorage(js).LoadOrCreateReaderIdAsync());
+        Assert.NotEqual(id, await new ConnectionStorage(new StorageJsRuntime()).LoadOrCreateReaderIdAsync());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("invalid")]
+    public async Task Invalid_reader_identity_is_not_overwritten(string value)
+    {
+        var js = new StorageJsRuntime();
+        js.Items[ConnectionStorage.ReaderIdStorageKey] = value;
+        await Assert.ThrowsAsync<InvalidDataException>(() => new ConnectionStorage(js).LoadOrCreateReaderIdAsync());
+        Assert.Equal(value, js.Items[ConnectionStorage.ReaderIdStorageKey]);
+    }
+
     [Theory]
     [InlineData("https://example.test/01234567-89ab-cdef-0123-456789abcdef")]
     [InlineData("http://localhost:5137/01234567-89ab-cdef-0123-456789abcdef")]
@@ -152,6 +175,7 @@ internal sealed class StorageJsRuntime : IJSRuntime
     public Dictionary<string, string> Items { get; } = [];
     public List<(string Identifier, object?[] Arguments)> Calls { get; } = [];
     public JSException? Failure { get; init; }
+    public string? FailureIdentifier { get; init; }
 
     public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
         InvokeAsync<TValue>(identifier, CancellationToken.None, args);
@@ -161,7 +185,7 @@ internal sealed class StorageJsRuntime : IJSRuntime
         token.ThrowIfCancellationRequested();
         var arguments = args ?? [];
         Calls.Add((identifier, arguments));
-        if (Failure is not null) { return ValueTask.FromException<TValue>(Failure); }
+        if (Failure is not null && (FailureIdentifier is null || FailureIdentifier == identifier)) { return ValueTask.FromException<TValue>(Failure); }
         var key = Assert.IsType<string>(arguments[0]);
         object? result = null;
         switch (identifier)

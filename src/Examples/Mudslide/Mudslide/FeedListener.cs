@@ -44,7 +44,7 @@ internal sealed class FeedListener
     {
         var feedId = Uri.UnescapeDataString(_options.FeedUri.Segments[^1]);
         _output.WriteLine($"Connecting to feed {feedId}.");
-        await ResetUntilReadyAsync(cancellationToken);
+        _output.WriteLine("Polling reader.");
         _output.WriteLine("Sending connectivity test notification.");
         var connectivityTestResult = await _notificationSender.SendAsync(
             ConnectivityTestMessage,

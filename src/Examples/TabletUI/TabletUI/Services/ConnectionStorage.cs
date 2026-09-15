@@ -9,6 +9,22 @@ public sealed class ConnectionStorage(IJSRuntime js)
 {
     public const string StorageKey = "TabletUI.connection.v1";
 
+    public const string ReaderIdStorageKey = "TabletUI.readerid.v1";
+
+    public async Task<Guid> LoadOrCreateReaderIdAsync()
+    {
+        var value = await js.InvokeAsync<string?>("localStorage.getItem", ReaderIdStorageKey);
+        if (value is not null)
+        {
+            if (Guid.TryParse(value, out var saved)) { return saved; }
+            throw new InvalidDataException("Saved reader ID is invalid. Restore it or clear this site's browser data to start a new queue.");
+        }
+
+        var id = Guid.NewGuid();
+        await js.InvokeVoidAsync("localStorage.setItem", ReaderIdStorageKey, id.ToString("D"));
+        return id;
+    }
+
     public async Task<StorageReadResult> LoadAsync()
     {
         try

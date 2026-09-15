@@ -5,26 +5,76 @@ namespace TabletUI.Tests;
 
 public sealed class FeedConnectionTests
 {
+    [Fact]
+    public async Task New_app_instance_reuses_saved_reader_and_receives_restart_message()
+    {
+        var storage = new StorageJsRuntime();
+        Uri reader;
+        await using (var first = new ConnectionHarness(storage: storage))
+        {
+            await first.ConnectAsync();
+            reader = (await first.Handler.NextAsync()).Uri;
+        }
+        await using var restarted = new ConnectionHarness(storage: storage);
+        await restarted.ConnectAsync();
+        var poll = await restarted.Handler.NextAsync();
+        Assert.Equal(reader, poll.Uri);
+        Assert.DoesNotContain("/reset", poll.Uri.AbsolutePath);
+        poll.Reply(HttpStatusCode.OK, "queued during restart"u8.ToArray());
+        await restarted.Handler.NextAsync();
+        Assert.Equal("queued during restart", Assert.Single(restarted.Connection.Entries).Preview);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Invalid_or_unavailable_identity_storage_prevents_network_requests(bool unavailable)
+    {
+        var storage = new StorageJsRuntime { Failure = unavailable ? new Microsoft.JSInterop.JSException("private details") : null };
+        storage.Items[TabletUI.Services.ConnectionStorage.ReaderIdStorageKey] = "invalid";
+        await using var h = new ConnectionHarness(storage: storage);
+        await h.ConnectAsync();
+        Assert.Equal(0, h.Handler.RequestCount);
+        Assert.False(h.Connection.IsConnected);
+        Assert.Contains("reader ID", h.Connection.Status);
+        Assert.DoesNotContain("private details", h.Connection.Status);
+    }
+
+    [Fact]
+    public async Task Failed_identity_write_prevents_connecting_with_an_unsaved_id()
+    {
+        var storage = new StorageJsRuntime
+        {
+            Failure = new Microsoft.JSInterop.JSException("quota"),
+            FailureIdentifier = "localStorage.setItem"
+        };
+        await using var h = new ConnectionHarness(storage: storage);
+        await h.ConnectAsync();
+        Assert.Empty(storage.Items);
+        Assert.Equal(0, h.Handler.RequestCount);
+        Assert.False(h.Connection.IsConnected);
+        Assert.Contains("reader ID", h.Connection.Status);
+    }
+
     [Theory]
     [InlineData(200)]
     [InlineData(204)]
-    [InlineData(302)]
-    public async Task Reset_is_first_and_redirected_200_preserves_body(int status)
+    public async Task Poll_is_first_and_preserves_queued_body(int status)
     {
         await using var h = new ConnectionHarness();
         await h.ConnectAsync("test-only raw authorization");
         var reset = await h.Handler.NextAsync();
         Assert.Equal(HttpMethod.Get, reset.Method);
         Assert.StartsWith(ConnectionHarness.Feed + "/", reset.Uri.AbsoluteUri);
-        Assert.EndsWith("/reset", reset.Uri.AbsolutePath);
-        var readerUrl = reset.Uri.AbsoluteUri[..^"/reset".Length];
+        Assert.DoesNotContain("/reset", reset.Uri.AbsolutePath);
+        var readerUrl = reset.Uri.AbsoluteUri;
         Assert.True(Guid.TryParse(readerUrl[(readerUrl.LastIndexOf('/') + 1)..], out _));
         Assert.True(h.Connection.CanSend);
         Assert.Equal("Connected", h.Connection.Status);
         Assert.Equal(1, h.Handler.RequestCount);
         Assert.Equal(["test-only raw authorization"], reset.Authorization);
 
-        // Fetch may follow the reset redirect and return the first message as HTTP 200.
+        // The first poll can immediately deliver a message queued before restart.
         const string body = "  first message\r\nnext line\n雪 & <tag>  ";
         const string type = "text/plain; charset=utf-8; profile=\"original\"";
         reset.Reply((HttpStatusCode)status, Encoding.UTF8.GetBytes(body), type);
@@ -46,7 +96,7 @@ public sealed class FeedConnectionTests
     }
 
     [Fact]
-    public async Task Pending_initial_reset_allows_sending_without_waiting_for_a_message()
+    public async Task Pending_initial_poll_allows_sending_without_waiting_for_a_message()
     {
         await using var h = new ConnectionHarness();
         await h.ConnectAsync();
@@ -108,8 +158,10 @@ public sealed class FeedConnectionTests
         PendingRequest request;
         if (duringReset)
         {
-            await h.ConnectAsync();
+            var poll = await h.ReadyAsync();
+            poll.Reply(HttpStatusCode.Gone);
             request = await h.Handler.NextAsync();
+            Assert.EndsWith("/reset", request.Uri.AbsolutePath);
         }
         else { request = await h.ReadyAsync(); }
         var halted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -144,8 +196,10 @@ public sealed class FeedConnectionTests
         PendingRequest request;
         if (duringReset)
         {
-            await h.ConnectAsync();
+            var poll = await h.ReadyAsync();
+            poll.Reply(HttpStatusCode.Gone);
             request = await h.Handler.NextAsync();
+            Assert.EndsWith("/reset", request.Uri.AbsolutePath);
         }
         else { request = await h.ReadyAsync(); }
         request.Reply((HttpStatusCode)status);
@@ -278,15 +332,15 @@ public sealed class FeedConnectionTests
     }
 
     [Fact]
-    public async Task Reconnect_cancels_previous_reader_before_creating_a_new_one()
+    public async Task Reconnect_cancels_previous_reader_before_reusing_it()
     {
         await using var h = new ConnectionHarness();
         var poll = await h.ReadyAsync();
         await h.ConnectAsync();
         await poll.WaitForCancellationAsync();
         var reset = await h.Handler.NextAsync();
-        Assert.EndsWith("/reset", reset.Uri.AbsoluteUri);
-        Assert.NotEqual(poll.Uri.AbsoluteUri + "/reset", reset.Uri.AbsoluteUri);
+        Assert.DoesNotContain("/reset", reset.Uri.AbsoluteUri);
+        Assert.Equal(poll.Uri, reset.Uri);
         Assert.Equal(1, h.Handler.MaxActiveGets);
     }
 
@@ -403,7 +457,7 @@ public sealed class FeedConnectionTests
     }
 
     [Fact]
-    public async Task Disconnect_cancels_initial_reset_and_resume_does_not_reconnect()
+    public async Task Disconnect_cancels_initial_poll_and_resume_does_not_reconnect()
     {
         await using var h = new ConnectionHarness();
         await h.ConnectAsync();

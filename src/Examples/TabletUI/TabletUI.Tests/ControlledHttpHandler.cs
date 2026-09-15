@@ -86,10 +86,10 @@ internal sealed class ConnectionHarness : IAsyncDisposable
     public HttpClient Client { get; }
     public FeedConnection Connection { get; }
 
-    public ConnectionHarness(TimeSpan? retryDelay = null)
+    public ConnectionHarness(TimeSpan? retryDelay = null, StorageJsRuntime? storage = null)
     {
         Client = new HttpClient(Handler) { Timeout = Timeout.InfiniteTimeSpan };
-        Connection = new FeedConnection(Client, TimeProvider.System, retryDelay: retryDelay ?? TimeSpan.Zero);
+        Connection = new FeedConnection(Client, TimeProvider.System, new ConnectionStorage(storage ?? new StorageJsRuntime()), retryDelay: retryDelay ?? TimeSpan.Zero);
     }
 
     public Task ConnectAsync(string auth = "") => Connection.ConnectAsync(new(1, Feed, auth));
@@ -98,7 +98,7 @@ internal sealed class ConnectionHarness : IAsyncDisposable
     {
         await ConnectAsync(auth);
         var reset = await Handler.NextAsync();
-        Assert.EndsWith("/reset", reset.Uri.AbsolutePath);
+        Assert.DoesNotContain("/reset", reset.Uri.AbsolutePath);
         reset.Reply(HttpStatusCode.NoContent);
         var poll = await Handler.NextAsync();
         Assert.True(Connection.CanSend);

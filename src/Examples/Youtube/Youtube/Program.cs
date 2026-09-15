@@ -43,7 +43,7 @@ internal class Program
             var listener = new FeedListener(
                 client,
                 options!,
-                Guid.NewGuid(),
+                ReaderIdentity.LoadOrCreate(AppContext.BaseDirectory),
                 commandHandler,
                 TimeSpan.FromSeconds(1),
                 Console.Out,

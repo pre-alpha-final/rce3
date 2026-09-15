@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Components.WebAssembly.Http;
 
 namespace TabletUI.Services;
 
-public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider, TimeSpan? retryDelay = null)
+public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider, ConnectionStorage storage, TimeSpan? retryDelay = null)
     : IAsyncDisposable
 {
     public const int LogLimit = 200;
@@ -38,7 +38,17 @@ public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider,
         {
             await StopSessionAsync();
             ClearLog();
-            var session = new Session(validated!);
+            Guid readerId;
+            try
+            {
+                readerId = await storage.LoadOrCreateReaderIdAsync();
+            }
+            catch (Exception ex) when (ex is Microsoft.JSInterop.JSException or InvalidDataException)
+            {
+                SetStatus("Cannot load or save reader ID. Check browser storage; restore an invalid ID or clear site data to start a new queue.");
+                return;
+            }
+            var session = new Session(validated!, readerId);
             _session = session;
             SetStatus(_online ? "Connecting — creating reader" : "Offline");
             session.Loop = PollAsync(session);
@@ -164,7 +174,7 @@ public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider,
 
     private async Task PollAsync(Session session)
     {
-        var reset = true;
+        var reset = false;
         var failures = 0;
         while (!session.Stop.IsCancellationRequested)
         {
@@ -179,8 +189,8 @@ public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider,
                 }
 
                 using var request = CreateRequest(session, HttpMethod.Get, session.ReaderUrl + (reset ? "/reset" : ""));
-                // Reset redirects into a long poll in the browser. Waiting for its response
-                // would disable controls on an idle feed, including after reconnecting.
+                // Waiting for a long-poll response would disable controls on an idle feed,
+                // including after reconnecting.
                 // Treat an active request as connected unless it reports a failure.
                 session.Ready = true;
                 SetStatus("Connected");
@@ -308,10 +318,10 @@ public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider,
 
     public async ValueTask DisposeAsync() => await DisconnectAsync();
 
-    private sealed class Session(ConnectionSettings settings)
+    private sealed class Session(ConnectionSettings settings, Guid readerId)
     {
         public ConnectionSettings Settings { get; } = settings;
-        public string ReaderUrl { get; } = $"{settings.RCE3_FEED}/{Guid.NewGuid():D}";
+        public string ReaderUrl { get; } = $"{settings.RCE3_FEED}/{readerId:D}";
         public CancellationTokenSource Stop { get; } = new();
         public CancellationTokenSource? Interrupt { get; set; }
         public Task Loop { get; set; } = Task.CompletedTask;

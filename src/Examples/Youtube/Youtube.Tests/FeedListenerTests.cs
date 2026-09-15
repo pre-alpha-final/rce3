@@ -9,14 +9,13 @@ public class FeedListenerTests
     private static readonly Guid ReaderId = Guid.Parse("74766693-8f1a-49a9-beac-4b9c1a275bac");
 
     [Fact]
-    public async Task ResetsThenProcessesMessagesInOrder()
+    public async Task PollsExistingReaderThenProcessesMessagesInOrder()
     {
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
-            2 => Completed(Response(HttpStatusCode.OK, "youtube: back")),
-            3 => Completed(Response(HttpStatusCode.OK, "youtube: forward6")),
+            1 => Completed(Response(HttpStatusCode.OK, "youtube: back")),
+            2 => Completed(Response(HttpStatusCode.OK, "youtube: forward6")),
             _ => Cancel(cancellation, token)
         });
         var commandHandler = new RecordingCommandHandler();
@@ -27,11 +26,11 @@ public class FeedListenerTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
         Assert.Equal(["youtube: back", "youtube: forward6"], commandHandler.Bodies);
-        Assert.Equal($"/{FeedUri.Segments[^1]}{ReaderPathSuffix}/reset", handler.Requests[0].Uri.AbsolutePath);
+        Assert.Equal($"/{FeedUri.Segments[^1]}{ReaderPathSuffix}", handler.Requests[0].Uri.AbsolutePath);
         Assert.Equal($"/{FeedUri.Segments[^1]}{ReaderPathSuffix}", handler.Requests[1].Uri.AbsolutePath);
         Assert.All(handler.Requests, request => Assert.Equal("raw-key", request.Authorization));
         Assert.Contains("Connecting", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Reader ready", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Polling reader", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("youtube: back", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("raw-key", output.ToString(), StringComparison.Ordinal);
     }
@@ -42,8 +41,7 @@ public class FeedListenerTests
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
-            2 => Completed(Response(HttpStatusCode.NoContent)),
+            1 => Completed(Response(HttpStatusCode.NoContent)),
             _ => Cancel(cancellation, token)
         });
         using var client = CreateClient(handler);
@@ -51,7 +49,7 @@ public class FeedListenerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
-        Assert.Equal(3, handler.Requests.Count);
+        Assert.Equal(2, handler.Requests.Count);
     }
 
     [Fact]
@@ -60,9 +58,8 @@ public class FeedListenerTests
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
-            2 => Completed(Response(HttpStatusCode.Gone)),
-            3 => Completed(Response(HttpStatusCode.Found)),
+            1 => Completed(Response(HttpStatusCode.Gone)),
+            2 => Completed(Response(HttpStatusCode.Found)),
             _ => Cancel(cancellation, token)
         });
         using var client = CreateClient(handler);
@@ -71,22 +68,42 @@ public class FeedListenerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
-        Assert.EndsWith("/reset", handler.Requests[0].Uri.AbsolutePath, StringComparison.Ordinal);
-        Assert.EndsWith("/reset", handler.Requests[2].Uri.AbsolutePath, StringComparison.Ordinal);
+        Assert.DoesNotContain("/reset", handler.Requests[0].Uri.AbsolutePath);
+        Assert.EndsWith("/reset", handler.Requests[1].Uri.AbsolutePath, StringComparison.Ordinal);
         Assert.Contains("resetting", error.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task TransientResetAndPollFailuresAreRetried()
+    public async Task OverflowResetRetriesFailuresThenResumesSameReader()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
+        {
+            1 => Completed(Response(HttpStatusCode.Gone)),
+            2 => Task.FromException<HttpResponseMessage>(new HttpRequestException("offline")),
+            3 => Completed(Response(HttpStatusCode.ServiceUnavailable)),
+            4 => Completed(Response(HttpStatusCode.Found)),
+            _ => Cancel(cancellation, token)
+        });
+        using var client = CreateClient(handler);
+        var listener = CreateListener(client, new RecordingCommandHandler());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
+        Assert.Equal(5, handler.Requests.Count);
+        Assert.Equal(handler.Requests[0].Uri, handler.Requests[4].Uri);
+        Assert.All(handler.Requests.Skip(1).Take(3), request =>
+            Assert.Equal(handler.Requests[0].Uri.AbsoluteUri + "/reset", request.Uri.AbsoluteUri));
+    }
+
+    [Fact]
+    public async Task TransientPollFailuresAreRetriedWithoutReset()
     {
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
             1 => Task.FromException<HttpResponseMessage>(new HttpRequestException("offline")),
             2 => Completed(Response(HttpStatusCode.RequestTimeout)),
-            3 => Completed(Response(HttpStatusCode.Found)),
-            4 => Completed(Response(HttpStatusCode.TooManyRequests)),
-            5 => Completed(Response(HttpStatusCode.InternalServerError)),
+            3 => Completed(Response(HttpStatusCode.TooManyRequests)),
+            4 => Completed(Response(HttpStatusCode.InternalServerError)),
             _ => Cancel(cancellation, token)
         });
         using var client = CreateClient(handler);
@@ -94,10 +111,8 @@ public class FeedListenerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listener.RunAsync(cancellation.Token));
 
-        Assert.Equal(6, handler.Requests.Count);
-        Assert.EndsWith("/reset", handler.Requests[0].Uri.AbsolutePath, StringComparison.Ordinal);
-        Assert.EndsWith("/reset", handler.Requests[2].Uri.AbsolutePath, StringComparison.Ordinal);
-        Assert.False(handler.Requests[3].Uri.AbsolutePath.EndsWith("/reset", StringComparison.Ordinal));
+        Assert.Equal(5, handler.Requests.Count);
+        Assert.All(handler.Requests, request => Assert.DoesNotContain("/reset", request.Uri.AbsolutePath));
     }
 
     [Fact]
@@ -130,8 +145,7 @@ public class FeedListenerTests
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, token) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
-            2 => Completed(Response(HttpStatusCode.OK, "private ordinary message")),
+            1 => Completed(Response(HttpStatusCode.OK, "private ordinary message")),
             _ => Cancel(cancellation, token)
         });
         using var client = CreateClient(handler);
@@ -158,7 +172,6 @@ public class FeedListenerTests
         using var cancellation = new CancellationTokenSource();
         var handler = new RecordingHandler((requestNumber, _, _) => requestNumber switch
         {
-            1 => Completed(Response(HttpStatusCode.Found)),
             _ => Completed(Response(HttpStatusCode.OK, "youtube: playpause"))
         });
         var commandHandler = new BlockingCommandHandler();
