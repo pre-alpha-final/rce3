@@ -61,10 +61,11 @@ MIT
 
 ## Example app reader identities
 
-Each example installation generates its reader ID once, saves it before connecting, and reuses it across restarts. Startup polls directly; it never resets a retained queue. Overflow recovery (`410 Gone`) resets the same reader and discards its unusable queue.
+Youtube, Mudslide, and TabletUI each generate a reader ID once, save it before connecting, and reuse it across restarts. Startup polls directly; it never resets a retained queue. Overflow recovery (`410 Gone`) resets the same reader and discards its unusable queue.
 
 - Youtube and Mudslide store a plain GUID in `readerid` beside the executable, independent of the shell's current directory. The directory must be writable on first use. Preserve the file during updates and exclude it when copying an installation to another device. Invalid or inaccessible files stop startup rather than silently replacing the identity. Delete the file deliberately to start a new queue.
 - TabletUI stores its ID under `TabletUI.readerid.v1` in local storage for that browser profile and site. Reconnecting, reloading, and forgetting connection settings preserve it. Clearing site data creates a new identity. If identity storage is unavailable or invalid, connection stops with a visible error.
+- [FetchProxy](src/Examples/FetchProxy/README.MD) is a DevTools snippet for proxying fetch requests. It keeps a fresh reader in memory for each run, saves nothing, and stops when its tab is closed, reloaded, or navigated away from. Re-pasting stops the previous run and starts a new reader; retries and overflow recovery reuse the current reader.
 
 Two running copies sharing an ID on the same feed consume from the same queue and split messages; use separate installations or browser profiles for independent readers. A reader ID can be reused on different feeds because queues are scoped to feeds.
 
