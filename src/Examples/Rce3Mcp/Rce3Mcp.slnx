@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Rce3Mcp/Rce3Mcp.csproj" />
+  <Project Path="Rce3Mcp.Tests/Rce3Mcp.Tests.csproj" />
+</Solution>
