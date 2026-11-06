@@ -57,7 +57,9 @@ This is a debug client, not a privileged administration or monitoring interface.
 
 ## MCP bridge
 
-[Rce3Mcp](src/Examples/Rce3Mcp/README.MD) is a standalone .NET 10 bridge exposing `send_message`, `get_messages`, and `get_status` over MCP Streamable HTTP at `http://localhost:5138/mcp`. Configure one feed with `RCE3_FEED` and optional raw `RCE3_AUTH`. A background reader collects messages into bounded, shared in-memory history; LLM clients retrieve recent messages or continue from their own cursors.
+[Rce3Mcp](src/Examples/Rce3Mcp/README.MD) is a standalone .NET 10 bridge exposing `send_message`, `get_messages`, `get_status`, and `fetchproxy` over MCP Streamable HTTP at `http://localhost:5138/mcp`. Configure one feed with `RCE3_FEED` and optional raw `RCE3_AUTH`. A background reader collects messages into bounded, shared in-memory history; LLM clients retrieve recent messages or continue from their own cursors.
+
+The `fetchproxy` tool sends an absolute HTTP(S) URL through a browser [FetchProxy](src/Examples/FetchProxy/README.MD) already configured by the user, and waits for the first HTTP response while ignoring fetch failures from other proxies. It handles the request/response lifecycle internally. Use it only for links or servers the user has set up beforehand and clearly intends to access this way; it is not a general-purpose proxy or browsing fallback.
 
 ## Example app reader identities
 

@@ -6,7 +6,7 @@ namespace Rce3Mcp;
 internal sealed class BridgeException(string message) : Exception(message);
 
 internal sealed class FeedBridge(HttpClient client, FeedConnection connection, ReaderIdentity identity,
-    McpOptions options, MessageHistory history, BridgeState state, TimeProvider timeProvider, ILogger<FeedBridge> logger)
+    McpOptions options, MessageHistory history, BridgeState state, FetchProxyRequests fetchProxy, TimeProvider timeProvider, ILogger<FeedBridge> logger)
     : BackgroundService
 {
     private CancellationToken _stoppingToken;
@@ -42,6 +42,7 @@ internal sealed class FeedBridge(HttpClient client, FeedConnection connection, R
                         var contentType = response.Content.Headers.NonValidated.TryGetValues("Content-Type", out var values)
                             ? string.Join(", ", values) : "application/octet-stream";
                         history.Add(body, contentType, length);
+                        fetchProxy.Receive(body);
                         state.PollSucceeded(receivedMessage: true);
                         continue;
                     }
@@ -72,6 +73,12 @@ internal sealed class FeedBridge(HttpClient client, FeedConnection connection, R
         {
             if (stoppingToken.IsCancellationRequested) state.Set("stopping");
         }
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        state.Set("stopping");
+        await base.StopAsync(cancellationToken);
     }
 
     public async Task<int> PublishAsync(byte[] body, string contentType, CancellationToken cancellationToken)

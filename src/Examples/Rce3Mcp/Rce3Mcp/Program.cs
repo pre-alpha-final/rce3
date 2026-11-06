@@ -62,6 +62,7 @@ public static class Program
         }) { Timeout = Timeout.InfiniteTimeSpan });
         builder.Services.AddSingleton<MessageHistory>();
         builder.Services.AddSingleton<BridgeState>();
+        builder.Services.AddSingleton<FetchProxyRequests>();
         builder.Services.AddSingleton<FeedBridge>();
         builder.Services.AddHostedService(provider => provider.GetRequiredService<FeedBridge>());
         builder.Services.AddMcpServer(server =>
