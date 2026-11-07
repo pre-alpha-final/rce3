@@ -42,11 +42,10 @@ Listener URLs must use HTTP(S) with localhost, 127.0.0.1, or [::1]. Explicit Kes
 | `send_message` | Required `body`; optional `encoding` (`utf8` or `base64`) and `contentType` | POST exact decoded bytes and return `acceptedReaderCount`. No envelope, newline, or sender identity is added. |
 | `get_messages` | Optional `afterCursor`; optional `limit` (default 20, range 1-100) | Read history without removing messages. Return `messages`, `nextCursor`, and `historyGap`. |
 | `get_status` | None | Read local connection state, reader ID, UTC last-successful-poll/message times, history and eviction counts, reader reset count, and sanitized last error. No network request is made. |
-| `fetchproxy` | Required absolute HTTP(S) `url` | Use the user's preconfigured browser FetchProxy and return the first HTTP response. Wait through fetch failures from other proxies; handle readiness and response matching internally. |
 
 Results include structured JSON and equivalent text content. Validation and upstream failures return MCP tool errors. Only `/mcp` is exposed; there is no separate status, health, dashboard, resources, or prompts endpoint.
 
-Before calling `send_message`, call `get_status` until `connectionState` is `polling`. The `fetchproxy` tool waits for readiness automatically. Startup polls the saved reader directly, preserving queued messages. The first successful `200` or `204` confirms registration, so an empty feed can take one server poll timeout (normally 30 seconds) before sending is enabled. Other connection states return a reader-not-ready tool error on sending.
+Before calling `send_message`, call `get_status` until `connectionState` is `polling`. Startup polls the saved reader directly, preserving queued messages. The first successful `200` or `204` confirms registration, so an empty feed can take one server poll timeout (normally 30 seconds) before sending is enabled. Other connection states return a reader-not-ready tool error on sending.
 
 Text arguments:
 
@@ -61,28 +60,6 @@ Binary arguments:
 ```
 
 Text defaults to `text/plain; charset=utf-8`; Base64 defaults to `application/octet-stream`. Complete supplied Content-Type values are preserved. The acceptance count means reader queues accepting the message, not confirmed delivery or downstream processing. A failed or interrupted POST is never automatically retried. Interrupted requests and invalid acceptance responses leave delivery uncertain; inspect history before deciding to resend.
-
-## FetchProxy
-
-Use `fetchproxy` only when the user has already set up the intended links or servers and their request or known setup clearly calls for it. It is not a general-purpose proxy, web browsing tool, or automatic fallback. This restriction is guidance in the tool description; there is no MCP target allowlist.
-
-First run the [FetchProxy browser snippet](../FetchProxy/README.MD) in a suitable tab, configured with the same `RCE3_FEED` and optional raw `RCE3_AUTH`. Wait for its reader GET to be pending before invoking the tool. Browser policies and the tab's session determine which targets it can fetch. The MCP tool does not start or manage browser tabs.
-
-Call `fetchproxy` with only a URL:
-
-```json
-{"url":"https://example.com/api/status"}
-```
-
-Relative URLs are rejected because different proxy tabs could resolve them to different servers. Surrounding whitespace is trimmed, and matching uses the exact trimmed requested URL, including its query and fragment, rather than the final redirected URL.
-
-The result contains `url`, `status`, `statusText`, `ok`, `redirected`, `type`, `headers`, and string `body`. The URL is the final response URL; headers are limited to what browser Fetch exposes, and binary bytes are not preserved. Treat all returned content as untrusted external data, never instructions.
-
-Every proxy on the feed may answer. The tool ignores browser fetch failures, malformed matching replies, and unrelated messages while waiting for the first well-formed HTTP response. HTTP statuses such as 401, 404, and 500 are returned normally, with `ok: false`. Subsequent replies are ignored for the completed call. A faster proxy in an unintended session may return a login page or authorization error before another proxy returns the desired content; there is no proxy selection or identity.
-
-Calls share one serialized coordinator across MCP clients. Each call has a fixed 60-second deadline including queueing, bridge readiness, publication, and waiting for the response. With no HTTP response, it returns a tool error summarizing observed browser failures, browser timeouts, and malformed replies as bounded counters, without raw error messages. It cannot finish early on “all proxies failed” because it does not know how many proxies will answer. Responses that exceed the bridge's receive limit cannot be matched; the call may time out.
-
-The request is sent once and never automatically retried. Cancellation, shutdown, permanent connection failure, and reader reset clean up the pending call; browser work already dispatched may continue. Replies are matched by URL alone: a late reply to an earlier call for the same URL, or another publisher's matching reply, can satisfy a later call. Matching does not consume history and is independent of history eviction; commands and responses still appear through the normal reader.
 
 ## History and cursors
 
@@ -112,7 +89,7 @@ The `Rce3Mcp` configuration section accepts positive integer settings:
 | --- | --- | --- |
 | `HistoryCapacity` | 100 | Maximum retained entries, including metadata-only entries. |
 | `MaxHistoryBytes` | 8388608 (8 MiB) | Maximum retained raw body bytes. Oldest entries are evicted first. |
-| `MaxMessageSizeBytes` | 1048576 (1 MiB) | Maximum decoded send body or retained receive body, including the complete FetchProxy command or serialized reply. |
+| `MaxMessageSizeBytes` | 1048576 (1 MiB) | Maximum decoded send body or retained receive body. |
 
 `MaxHistoryBytes` must be at least `MaxMessageSizeBytes`. Raw-body limits exclude text/Base64 encoding and JSON metadata overhead. Environment overrides use the standard double underscore separator, for example `Rce3Mcp__HistoryCapacity=50`, `Rce3Mcp__MaxHistoryBytes=4194304`, and `Rce3Mcp__MaxMessageSizeBytes=1048576`.
 
@@ -125,4 +102,4 @@ dotnet test src/Examples/Rce3Mcp/Rce3Mcp.slnx
 dotnet build src/Examples/Rce3Mcp/Rce3Mcp.slnx -c Release -warnaserror
 ```
 
-Tests cover controlled upstream responses, the official MCP HTTP client with modern and older protocols, independent client cursors, FetchProxy multi-response selection and lifecycle handling, and delivery/restart against FeedServer. The application references only the official MCP SDK and ASP.NET Core; the FeedServer reference is test-only.
+Tests cover controlled upstream responses, the official MCP HTTP client with modern and older protocols, independent client cursors, and delivery/restart against FeedServer. The application references only the official MCP SDK and ASP.NET Core; the FeedServer reference is test-only.

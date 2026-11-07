@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Net;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -32,20 +31,20 @@ internal sealed class ControlledHandler : HttpMessageHandler
 
 internal sealed class RetryTimeProvider : TimeProvider
 {
-    private readonly ConcurrentDictionary<TimeSpan, Channel<Action>> _timers = new();
+    private readonly Channel<Action> _timers = Channel.CreateUnbounded<Action>();
     public override DateTimeOffset GetUtcNow() => new(2026, 11, 5, 12, 0, 0, TimeSpan.Zero);
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
-        Assert.Contains(dueTime, new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(60) });
+        Assert.Equal(TimeSpan.FromSeconds(1), dueTime);
         var timer = new ManualTimer(() => callback(state));
-        Timers(dueTime).Writer.TryWrite(timer.Fire);
+        _timers.Writer.TryWrite(timer.Fire);
         return timer;
     }
-    private Channel<Action> Timers(TimeSpan dueTime) => _timers.GetOrAdd(dueTime, _ => Channel.CreateUnbounded<Action>());
-    public Task ReleaseRetryAsync() => ReleaseAsync(TimeSpan.FromSeconds(1));
-    public Task ReleaseDeadlineAsync() => ReleaseAsync(TimeSpan.FromSeconds(60));
-    public async Task<Action> NextDeadlineAsync() => await Timers(TimeSpan.FromSeconds(60)).Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
-    private async Task ReleaseAsync(TimeSpan dueTime) => (await Timers(dueTime).Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)))();
+    public async Task ReleaseRetryAsync()
+    {
+        var fire = await _timers.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+        fire();
+    }
     private sealed class ManualTimer(Action callback) : ITimer
     {
         private bool _disposed;
@@ -66,18 +65,16 @@ internal sealed class BridgeHarness : IAsyncDisposable
     public BridgeState State { get; }
     public FeedBridge Bridge { get; }
     public FeedTools Tools { get; }
-    public FetchProxyRequests FetchProxy { get; }
     private readonly HttpClient _client;
     public BridgeHarness(string? authorization = null, McpOptions? options = null)
     {
         Options = options ?? new();
         History = new(Options, Time);
         State = new(Identity, History, Time);
-        FetchProxy = new(State, Options, Time);
         _client = new(Handler) { Timeout = Timeout.InfiniteTimeSpan };
         Bridge = new(_client, new(new Uri("http://feed.test/00000000-0000-0000-0000-000000000000"), authorization),
-            Identity, Options, History, State, FetchProxy, Time, NullLogger<FeedBridge>.Instance);
-        Tools = new(Bridge, History, State, Options, FetchProxy);
+            Identity, Options, History, State, Time, NullLogger<FeedBridge>.Instance);
+        Tools = new(Bridge, History, State, Options);
     }
     public async Task<PendingRequest> StartAsync()
     {
@@ -95,8 +92,6 @@ internal sealed class BridgeHarness : IAsyncDisposable
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await Bridge.StopAsync(deadline.Token);
         Bridge.Dispose();
-        FetchProxy.Dispose();
-        State.Dispose();
         _client.Dispose();
     }
 }

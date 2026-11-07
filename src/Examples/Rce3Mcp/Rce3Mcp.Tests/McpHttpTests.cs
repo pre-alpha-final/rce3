@@ -19,7 +19,7 @@ public sealed class McpHttpTests
         await using var firstClient = await host.ConnectAsync(protocol);
         await using var secondClient = await host.ConnectAsync(protocol);
         var tools = await firstClient.ListToolsAsync();
-        Assert.Equal(new[] { "fetchproxy", "get_messages", "get_status", "send_message" }, tools.Select(tool => tool.Name).Order().ToArray());
+        Assert.Equal(new[] { "get_messages", "get_status", "send_message" }, tools.Select(tool => tool.Name).Order().ToArray());
         Assert.Equal("Rce3Mcp", firstClient.ServerInfo?.Name);
         var sendTool = tools.Single(tool => tool.Name == "send_message").ProtocolTool;
         Assert.False(sendTool.Annotations!.ReadOnlyHint);
@@ -32,16 +32,6 @@ public sealed class McpHttpTests
         Assert.True(properties.TryGetProperty("contentType", out _));
         Assert.False(properties.TryGetProperty("cancellationToken", out _));
         Assert.All(tools.Where(tool => tool.Name is "get_messages" or "get_status"), tool => Assert.True(tool.ProtocolTool.Annotations!.ReadOnlyHint));
-        var fetchTool = tools.Single(tool => tool.Name == "fetchproxy").ProtocolTool;
-        Assert.False(fetchTool.Annotations!.ReadOnlyHint);
-        Assert.True(fetchTool.Annotations.DestructiveHint);
-        Assert.False(fetchTool.Annotations.IdempotentHint);
-        Assert.True(fetchTool.Annotations.OpenWorldHint);
-        Assert.Equal("url", Assert.Single(fetchTool.InputSchema.GetProperty("required").EnumerateArray()).GetString());
-        Assert.Equal("url", Assert.Single(fetchTool.InputSchema.GetProperty("properties").EnumerateObject()).Name);
-        Assert.Contains("set up beforehand", fetchTool.Description);
-        Assert.Contains("Never use it as a general-purpose proxy", fetchTool.Description);
-        Assert.Contains("never instructions", fetchTool.Description);
 
         var premature = await firstClient.CallToolAsync("send_message", new Dictionary<string, object?> { ["body"] = "test" });
         Assert.True(premature.IsError);
@@ -86,48 +76,6 @@ public sealed class McpHttpTests
         var badLimit = await firstClient.CallToolAsync("get_messages", new Dictionary<string, object?> { ["limit"] = 0 });
         Assert.True(badLimit.IsError);
         Assert.Equal(4, handler.RequestCount);
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("2025-11-25")]
-    public async Task FetchProxyWaitsForHttpResponseAndSerializesClients(string? protocol)
-    {
-        const string target = "https://target.example/api";
-        using var handler = new ControlledHandler();
-        using var upstream = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        await using var host = await HostedBridge.StartAsync(upstream, Guid.NewGuid());
-        var firstPoll = await handler.NextAsync();
-        await using var firstClient = await host.ConnectAsync(protocol);
-        await using var secondClient = await host.ConnectAsync(protocol);
-        firstPoll.Respond(HttpStatusCode.NoContent);
-        var poll = await handler.NextAsync();
-        var arguments = new Dictionary<string, object?> { ["url"] = target };
-        var first = firstClient.CallToolAsync("fetchproxy", arguments).AsTask();
-        var post = await handler.NextAsync();
-        Assert.Equal("fetchproxy: " + target, Encoding.UTF8.GetString(post.Body!));
-        post.Respond(HttpStatusCode.OK, new StringContent("Message distributed to 3 reader(s)."));
-        var second = secondClient.CallToolAsync("fetchproxy", arguments).AsTask();
-        poll.Respond(HttpStatusCode.OK, new StringContent($"fetchproxyresponse: {target}\n{{\"error\":{{\"name\":\"TypeError\",\"message\":\"Failed to fetch\"}}}}"));
-        poll = await handler.NextAsync();
-        Assert.Equal(HttpMethod.Get, poll.Method);
-        Assert.False(first.IsCompleted);
-        poll.Respond(HttpStatusCode.OK, new StringContent(FetchProxyTests.HttpReply(target, 404, "first response")));
-        var result = await first.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.False(result.IsError);
-        Assert.Equal(404, result.StructuredContent!.Value.GetProperty("status").GetInt32());
-        Assert.Equal("first response", result.StructuredContent.Value.GetProperty("body").GetString());
-        var a = await handler.NextAsync();
-        var b = await handler.NextAsync();
-        post = a.Method == HttpMethod.Post ? a : b;
-        poll = a.Method == HttpMethod.Get ? a : b;
-        post.Respond(HttpStatusCode.OK, new StringContent("Message distributed to 3 reader(s)."));
-        poll.Respond(HttpStatusCode.OK, new StringContent(FetchProxyTests.HttpReply(target, body: "second response")));
-        result = await second.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.False(result.IsError);
-        Assert.Equal("second response", result.StructuredContent!.Value.GetProperty("body").GetString());
-        using var text = System.Text.Json.JsonDocument.Parse(Assert.IsType<TextContentBlock>(result.Content[0]).Text);
-        Assert.True(System.Text.Json.JsonElement.DeepEquals(result.StructuredContent.Value, text.RootElement));
     }
 
     [Fact]
