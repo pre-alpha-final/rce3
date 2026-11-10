@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace Mudslide;
 
 internal class Program
@@ -30,7 +32,8 @@ internal class Program
 
             using var handler = new SocketsHttpHandler
             {
-                AllowAutoRedirect = false
+                AllowAutoRedirect = false,
+                AutomaticDecompression = DecompressionMethods.GZip
             };
             using var client = new HttpClient(handler)
             {

@@ -11,7 +11,7 @@ RCE3's protocol revolves around two requests: readers keep a GET pending for the
 | Request | Behavior |
 | --- | --- |
 | `GET /{feedGuid}/{readerGuid}` | Create or touch a reader, then long-poll for exactly one queued message. Returns the raw message, or `204 No Content` if the poll ends without one. |
-| `POST /{feedGuid}` | Publish the raw request body to every reader that currently exists. Returns the number of reader queues that accepted the message. |
+| `POST /{feedGuid}` | Publish the message body to every reader that currently exists. Returns the number of reader queues that accepted the message. |
 
 A missing feed is created by the first valid POST, reader poll, or reader reset request. A POST is valid for creation only after its authorization and body-size checks pass.
 
@@ -39,11 +39,12 @@ Root, help, and admin requests ignore Authorization and leave feed state unchang
 - `200 OK`: help, admin page, accepted POST, or delivery of one message.
 - `204 No Content`: long-poll timeout, cancellation, feed expiration, reset, or shutdown when no message was delivered.
 - `302 Found`: random feed URL or reader reset redirect.
-- `400 Bad Request`: malformed GUID or path.
+- `400 Bad Request`: malformed GUID or path, or invalid gzip body.
 - `401 Unauthorized`: invalid Authorization header or failed protected-feed authorization.
 - `403 Forbidden`: an Authorization header was sent to an open feed.
-- `413 Payload Too Large`: the body exceeds `MaxMessageSizeBytes`, including an unknown-length streaming body.
 - `410 Gone`: the reader queue overflowed and must be reset before polling can resume.
+- `413 Payload Too Large`: the uploaded body exceeds the transfer limit, including an unknown-length upload.
+- `415 Unsupported Media Type`: unsupported, blank, or stacked `Content-Encoding` values.
 
 An overflow makes that reader unusable and its queued messages unavailable. It does not affect other readers. The overflow-causing message is not accepted by that reader.
 

@@ -195,7 +195,7 @@ public class FeedCorsTests
     {
         using var request = new HttpRequestMessage(HttpMethod.Options, path);
         request.Headers.Add("Access-Control-Request-Method", method);
-        request.Headers.Add("Access-Control-Request-Headers", "authorization,content-type");
+        request.Headers.Add("Access-Control-Request-Headers", "authorization,content-type,content-encoding");
         return await client.SendAsync(request);
     }
 
@@ -228,7 +228,7 @@ public class FeedCorsTests
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         AssertWildcard(response);
         Assert.Equal(new[] { "GET", "POST" }, HeaderValues(response, "Access-Control-Allow-Methods"));
-        Assert.Equal(new[] { "authorization", "content-type" },
+        Assert.Equal(new[] { "authorization", "content-type", "content-encoding" },
             HeaderValues(response, "Access-Control-Allow-Headers").Select(value => value.ToLowerInvariant()));
     }
 

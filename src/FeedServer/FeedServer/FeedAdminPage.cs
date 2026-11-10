@@ -209,13 +209,24 @@ internal static class FeedAdminPage
 
                 sendButton.disabled = true;
                 try {
+                  const headers = {
+                    ...requestHeaders(current.authorization),
+                    "Content-Type": "text/plain;charset=UTF-8"
+                  };
+                  let body = new Blob([messageInput.value]);
+                  if (typeof CompressionStream === "function") {
+                    const stream = body.stream().pipeThrough(new CompressionStream("gzip"));
+                    const compressed = await new Response(stream).blob();
+                    if (compressed.size < body.size) {
+                      body = compressed;
+                      headers["Content-Encoding"] = "gzip";
+                    }
+                  }
+
                   const response = await fetch(feedUrl, {
                     method: "POST",
-                    headers: {
-                      ...requestHeaders(current.authorization),
-                      "Content-Type": "text/plain;charset=UTF-8"
-                    },
-                    body: messageInput.value,
+                    headers,
+                    body,
                     signal: current.controller.signal
                   });
                   if (!response.ok) {

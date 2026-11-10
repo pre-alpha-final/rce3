@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -125,8 +126,18 @@ public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider,
         try
         {
             using var request = CreateRequest(session, HttpMethod.Post, session.Settings.RCE3_FEED);
-            request.Content = new ByteArrayContent(bytes);
+            using var compressed = new MemoryStream();
+            using (var compressor = new GZipStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+            {
+                await compressor.WriteAsync(bytes, session.Stop.Token);
+            }
+            var useGzip = compressed.Length < bytes.Length;
+            request.Content = new ByteArrayContent(useGzip ? compressed.ToArray() : bytes);
             request.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+            if (useGzip)
+            {
+                request.Content.Headers.ContentEncoding.Add("gzip");
+            }
             using var response = await client.SendAsync(request, session.Stop.Token);
             if (_session != session) { return null; }
             if (response.StatusCode == HttpStatusCode.OK)

@@ -4,7 +4,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Rce3Mcp.Tests;
 
-internal sealed record PendingRequest(Uri Uri, HttpMethod Method, string? Authorization, byte[]? Body, string? ContentType)
+internal sealed record PendingRequest(Uri Uri, HttpMethod Method, string? Authorization, byte[]? Body,
+    string? ContentType, string[] ContentEncodings)
 {
     public TaskCompletionSource<HttpResponseMessage> Reply { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -22,7 +23,8 @@ internal sealed class ControlledHandler : HttpMessageHandler
         var pending = new PendingRequest(request.RequestUri!, request.Method,
             request.Headers.TryGetValues("Authorization", out var values) ? values.Single() : null,
             request.Content is null ? null : await request.Content.ReadAsByteArrayAsync(cancellationToken),
-            request.Content?.Headers.NonValidated.TryGetValues("Content-Type", out var types) == true ? types.Single() : null);
+            request.Content?.Headers.NonValidated.TryGetValues("Content-Type", out var types) == true ? types.Single() : null,
+            request.Content?.Headers.ContentEncoding.ToArray() ?? []);
         await _requests.Writer.WriteAsync(pending, cancellationToken);
         try { return await pending.Reply.Task.WaitAsync(cancellationToken); }
         catch (OperationCanceledException) { pending.Cancelled.TrySetResult(); throw; }

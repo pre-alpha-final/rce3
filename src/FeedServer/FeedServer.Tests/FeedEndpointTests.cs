@@ -235,7 +235,8 @@ public class FeedEndpointTests
         Assert.Contains($"FeedId: {feedId:D}", help, StringComparison.Ordinal);
         Assert.DoesNotContain("Mode:", help, StringComparison.Ordinal);
         Assert.Contains("GET  /{FeedId}/admin", help, StringComparison.Ordinal);
-        Assert.Contains("Max body: 123 bytes", help, StringComparison.Ordinal);
+        Assert.Contains("Upload transfer limit: 123 bytes before decoding", help, StringComparison.Ordinal);
+        Assert.Contains("Content-Encoding: gzip", help, StringComparison.Ordinal);
         Assert.Contains("after 00:00:03", help, StringComparison.Ordinal);
         Assert.Contains("exceeding 7 queued messages", help, StringComparison.Ordinal);
         Assert.Contains("expires after 2 hours", help, StringComparison.Ordinal);

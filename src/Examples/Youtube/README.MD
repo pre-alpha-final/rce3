@@ -20,6 +20,8 @@ dotnet run --project .\src\Examples\Youtube\Youtube\Youtube.csproj -- "http://lo
 
 The app saves its reader GUID in a `readerid` file beside the executable and reuses it on restart without resetting the queue, then listens until you press Ctrl+C. It never publishes messages. Keep this file during updates; do not copy it to another installation. An invalid or unwritable identity file stops startup with an error. See the root README for the shared reader identity rule.
 
+The app requests gzip poll responses and decodes them automatically.
+
 ## Commands
 
 Command bodies are exact and case-sensitive:

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 namespace FeedServer;
@@ -19,12 +20,17 @@ public class Program
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<FeedStore>();
         builder.Services.AddHostedService<FeedExpirationService>();
+        builder.Services.AddResponseCompression(options =>
+        {
+            options.Providers.Add<GzipCompressionProvider>();
+            options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Append("application/octet-stream");
+        });
         builder.Services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy => policy
                 .AllowAnyOrigin()
                 .WithMethods(HttpMethods.Get, HttpMethods.Post)
-                .WithHeaders("Authorization", "Content-Type"));
+                .WithHeaders("Authorization", "Content-Type", "Content-Encoding"));
         });
 
         builder.WebHost.ConfigureKestrel(options =>
@@ -43,7 +49,9 @@ public class Program
 
         var app = builder.Build();
 
+        app.UseRouting();
         app.UseCors();
+        app.UseWhen(FeedEndpoints.CanCompressPoll, branch => branch.UseResponseCompression());
 
         FeedEndpoints.Map(app);
 

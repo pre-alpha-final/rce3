@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 
@@ -106,6 +107,8 @@ public sealed class FeedConnectionTests
         var sending = h.Connection.PublishAsync("command", "text/plain");
         var post = await h.Handler.NextAsync();
         Assert.Equal(HttpMethod.Post, post.Method);
+        Assert.Empty(post.ContentEncodings);
+        Assert.Equal("command"u8.ToArray(), post.Body);
         Assert.False(h.Connection.CanSend);
         Assert.True(h.Connection.IsConnected);
         Assert.Equal("Connected", h.Connection.Status);
@@ -114,6 +117,28 @@ public sealed class FeedConnectionTests
         Assert.True(h.Connection.CanSend);
         Assert.False(reset.Response.Task.IsCompleted);
         Assert.Equal(1, h.Handler.ActiveGets);
+    }
+
+    [Fact]
+    public async Task PublishUsesGzipWhenItShrinksTheBody()
+    {
+        await using var h = new ConnectionHarness();
+        await h.ReadyAsync();
+        var body = new string('x', 1024);
+        const string contentType = "text/plain; charset=utf-8";
+
+        var sending = h.Connection.PublishAsync(body, contentType);
+        var post = await h.Handler.NextAsync();
+        Assert.Equal(HttpMethod.Post, post.Method);
+        Assert.Equal("gzip", Assert.Single(post.ContentEncodings));
+        Assert.Equal(contentType, Assert.Single(post.ContentTypes));
+        Assert.True(post.Body.Length < body.Length);
+        using var gzip = new GZipStream(new MemoryStream(post.Body), CompressionMode.Decompress);
+        using var reader = new StreamReader(gzip);
+        Assert.Equal(body, await reader.ReadToEndAsync());
+
+        post.Reply(HttpStatusCode.OK, "Message distributed to 1 reader(s)."u8.ToArray());
+        Assert.Equal(1, await sending);
     }
 
     [Fact]

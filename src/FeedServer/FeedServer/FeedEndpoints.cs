@@ -1,5 +1,7 @@
 using System.Buffers;
+using System.IO.Compression;
 using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 
 namespace FeedServer;
 
@@ -22,10 +24,25 @@ public static class FeedEndpoints
         app.MapGet("/{feedGuid}", GetFeed);
         app.MapPost("/{feedGuid}", PostFeed);
         app.MapGet("/{feedGuid}/admin", GetAdmin);
-        app.MapGet("/{feedGuid}/{readerGuid}", GetReader);
+        app.MapGet("/{feedGuid}/{readerGuid}", GetReader).WithMetadata(new ReaderPollMetadata());
         app.MapGet("/{feedGuid}/{readerGuid}/reset", ResetReader);
         app.MapMethods("/{*path}", SupportedMethods, BadPath);
     }
+
+    internal static bool CanCompressPoll(HttpContext context)
+    {
+        if (context.GetEndpoint()?.Metadata.GetMetadata<ReaderPollMetadata>() is null)
+        {
+            return false;
+        }
+
+        // An explicit refusal takes precedence over a wildcard.
+        return !StringWithQualityHeaderValue.TryParseList(context.Request.Headers.AcceptEncoding, out var encodings)
+            || !encodings.Any(encoding => encoding.Value.Equals("gzip", StringComparison.OrdinalIgnoreCase)
+                && encoding.Quality == 0);
+    }
+
+    private sealed class ReaderPollMetadata;
 
     private static IResult RedirectToNewFeed()
     {
@@ -74,6 +91,21 @@ public static class FeedEndpoints
             return AccessFailure(existingAccess);
         }
 
+        var gzip = false;
+        if (request.Headers.TryGetValue(HeaderNames.ContentEncoding, out var encodings))
+        {
+            var encoding = encodings.Count == 1 ? encodings[0]?.Trim() : null;
+            gzip = string.Equals(encoding, "gzip", StringComparison.OrdinalIgnoreCase);
+            if (!gzip && !string.Equals(encoding, "identity", StringComparison.OrdinalIgnoreCase))
+            {
+                request.HttpContext.Response.Headers.AcceptEncoding = "gzip";
+                return Results.Problem(
+                    title: "Unsupported content encoding",
+                    detail: "Send a plain body or a body encoded with gzip.",
+                    statusCode: StatusCodes.Status415UnsupportedMediaType);
+            }
+        }
+
         if (request.ContentLength > options.Value.MaxMessageSizeBytes)
         {
             FeedServerLog.DeclaredPayloadTooLarge(
@@ -85,12 +117,26 @@ public static class FeedEndpoints
         }
 
         byte[] body;
+        long? gzipDecodedLength = null;
         try
         {
             body = await FeedRequestBodyReader.ReadAsync(
                 request.Body,
                 options.Value.MaxMessageSizeBytes,
                 request.HttpContext.RequestAborted);
+            if (gzip)
+            {
+                if (body.Length == 0)
+                {
+                    return InvalidGzip();
+                }
+
+                gzipDecodedLength = await DecodeGzipAsync(body, Stream.Null, request.HttpContext.RequestAborted);
+            }
+        }
+        catch (InvalidDataException) when (gzip)
+        {
+            return InvalidGzip();
         }
         catch (MessageTooLargeException)
         {
@@ -116,10 +162,11 @@ public static class FeedEndpoints
             return AccessFailure(access);
         }
 
-        var readerCount = access.Feed!.Publish(new FeedMessage(body, request.ContentType));
+        var message = new FeedMessage(body, request.ContentType) { GzipDecodedLength = gzipDecodedLength };
+        var readerCount = access.Feed!.Publish(message);
         FeedServerLog.MessagePosted(
             logger,
-            body.Length,
+            gzipDecodedLength ?? body.LongLength,
             access.Feed.Id,
             readerCount);
 
@@ -192,7 +239,26 @@ public static class FeedEndpoints
             return Results.NoContent();
         }
 
-        return Results.Bytes(message.Body, message.ContentType ?? "application/octet-stream");
+        var response = request.HttpContext.Response;
+        response.Headers.Append(HeaderNames.Vary, HeaderNames.AcceptEncoding);
+        var contentType = message.ContentType ?? "application/octet-stream";
+        var decodedLength = message.GzipDecodedLength ?? message.Body.LongLength;
+        if (decodedLength == 0)
+        {
+            response.ContentType = contentType;
+            response.ContentLength = 0;
+            return Results.Ok();
+        }
+
+        if (message.GzipDecodedLength.HasValue)
+        {
+            response.ContentLength = decodedLength;
+            return Results.Stream(
+                output => DecodeGzipAsync(message.Body, output, request.HttpContext.RequestAborted),
+                contentType);
+        }
+
+        return Results.Bytes(message.Body, contentType);
     }
 
     private static IResult ResetReader(
@@ -265,11 +331,41 @@ public static class FeedEndpoints
             statusCode: StatusCodes.Status410Gone);
     }
 
+    private static async Task<long> DecodeGzipAsync(byte[] body, Stream destination, CancellationToken cancellationToken)
+    {
+        using var gzip = new GZipStream(new MemoryStream(body, writable: false), CompressionMode.Decompress);
+        var buffer = ArrayPool<byte>.Shared.Rent(81920);
+        try
+        {
+            long length = 0;
+            while (true)
+            {
+                var count = await gzip.ReadAsync(buffer, cancellationToken);
+                if (count == 0)
+                {
+                    return length;
+                }
+
+                await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+                length += count;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static IResult InvalidGzip()
+    {
+        return BadRequest("Invalid gzip body", "Send a complete gzip stream.");
+    }
+
     private static IResult PayloadTooLarge(FeedServerOptions options)
     {
         return Results.Problem(
             title: "Payload too large",
-            detail: $"Message bodies may not exceed {options.MaxMessageSizeBytes} bytes.",
+            detail: $"The upload transfer limit is {options.MaxMessageSizeBytes} bytes, measured before decoding.",
             statusCode: StatusCodes.Status413PayloadTooLarge);
     }
 }

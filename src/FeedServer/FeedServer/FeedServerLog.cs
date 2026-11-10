@@ -19,7 +19,7 @@ internal static partial class FeedServerLog
     public static partial void StreamingPayloadTooLarge(ILogger logger, Guid feedId, long maxMessageSizeBytes);
 
     [LoggerMessage(5, LogLevel.Information, "Posted {MessageSize} byte message to feed {FeedId}; distributed to {ReaderCount} reader(s).")]
-    public static partial void MessagePosted(ILogger logger, int messageSize, Guid feedId, int readerCount);
+    public static partial void MessagePosted(ILogger logger, long messageSize, Guid feedId, int readerCount);
 
     [LoggerMessage(6, LogLevel.Warning, "Rejected malformed reader route {FeedGuid}/{ReaderGuid}: {Problem}")]
     public static partial void MalformedReaderRoute(

@@ -35,6 +35,8 @@ dotnet run --project src/Examples/Rce3Mcp/Rce3Mcp/Rce3Mcp.csproj --no-launch-pro
 
 Listener URLs must use HTTP(S) with localhost, 127.0.0.1, or [::1]. Explicit Kestrel endpoint configuration is rejected; use `--urls`. Standard ASP.NET Core `urls` configuration is supported; `--urls` overrides it. Accepted Host headers are localhost, 127.0.0.1, and [::1]. A supplied Origin must match the request scheme, host, and port. Cross-origin browser access is disabled. This version has no network-facing authentication or hosting support. Press Ctrl+C to stop HTTP and cancel the reader.
 
+The bridge negotiates gzip for RCE3 polls and uses gzip for RCE3 publishes when it reduces the body size. Run it against a gzip-capable RCE3 server.
+
 ## Tools
 
 | Tool | Arguments | Behavior |

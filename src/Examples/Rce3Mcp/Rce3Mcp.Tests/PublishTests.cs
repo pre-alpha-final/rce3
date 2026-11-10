@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using ModelContextProtocol.Protocol;
@@ -19,12 +20,36 @@ public sealed class PublishTests
         Assert.Equal(HttpMethod.Post, post.Method);
         Assert.Equal("raw test key", post.Authorization);
         Assert.Equal(expectedType, post.ContentType);
+        Assert.Empty(post.ContentEncodings);
         Assert.Equal(encoding == "utf8" ? Encoding.UTF8.GetBytes(body) : Convert.FromBase64String(body), post.Body);
         post.Respond(HttpStatusCode.OK, new StringContent("Message distributed to 3 reader(s)."));
         var result = await sending;
         Assert.False(result.IsError);
         Assert.Equal(3, result.StructuredContent!.Value.GetProperty("acceptedReaderCount").GetInt32());
         Assert.Empty(harness.History.Read().Messages);
+    }
+
+    [Fact]
+    public async Task PublishUsesGzipWhenItShrinksTheBody()
+    {
+        await using var harness = new BridgeHarness();
+        await harness.ReadyAsync();
+        var body = new string('x', 1024);
+        const string contentType = "text/plain; charset=utf-8; mode=exact";
+
+        var sending = harness.Tools.SendMessage(body, CancellationToken.None, contentType: contentType);
+        var post = await harness.Handler.NextAsync();
+        Assert.Equal(HttpMethod.Post, post.Method);
+        Assert.Equal("gzip", Assert.Single(post.ContentEncodings));
+        Assert.Equal(contentType, post.ContentType);
+        Assert.NotNull(post.Body);
+        Assert.True(post.Body.Length < body.Length);
+        using var gzip = new GZipStream(new MemoryStream(post.Body), CompressionMode.Decompress);
+        using var reader = new StreamReader(gzip);
+        Assert.Equal(body, await reader.ReadToEndAsync());
+
+        post.Respond(HttpStatusCode.OK, new StringContent("Message distributed to 1 reader(s)."));
+        Assert.False((await sending).IsError);
     }
 
     [Fact]

@@ -25,7 +25,8 @@ internal sealed class ControlledHttpHandler : HttpMessageHandler
         var pending = new PendingRequest(request.Method, request.RequestUri!,
             request.Headers.TryGetValues("Authorization", out var auth) ? auth.ToArray() : [],
             request.Content is null ? [] : await request.Content.ReadAsByteArrayAsync(token),
-            request.Content?.Headers.TryGetValues("Content-Type", out var types) == true ? types.ToArray() : []);
+            request.Content?.Headers.TryGetValues("Content-Type", out var types) == true ? types.ToArray() : [],
+            request.Content?.Headers.ContentEncoding.ToArray() ?? []);
         Interlocked.Increment(ref _requestCount);
         if (request.Method == HttpMethod.Get)
         {
@@ -57,7 +58,7 @@ internal sealed class ControlledHttpHandler : HttpMessageHandler
 }
 
 internal sealed record PendingRequest(
-    HttpMethod Method, Uri Uri, string[] Authorization, byte[] Body, string[] ContentTypes)
+    HttpMethod Method, Uri Uri, string[] Authorization, byte[] Body, string[] ContentTypes, string[] ContentEncodings)
 {
     public TaskCompletionSource<HttpResponseMessage> Response { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Canceled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

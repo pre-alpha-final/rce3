@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO.Compression;
 using System.Net;
 
 namespace Rce3Mcp;
@@ -84,13 +85,24 @@ internal sealed class FeedBridge(HttpClient client, FeedConnection connection, R
     {
         if (!state.CanSend)
             throw new BridgeException("Reader not ready. Call get_status and wait for connectionState polling before sending.");
-        using var request = Request(HttpMethod.Post, connection.FeedUri);
-        request.Content = new ByteArrayContent(body);
-        request.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stoppingToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         try
         {
+            using var request = Request(HttpMethod.Post, connection.FeedUri);
+            using var compressed = new MemoryStream();
+            using (var compressor = new GZipStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+            {
+                await compressor.WriteAsync(body, timeout.Token);
+            }
+            var useGzip = compressed.Length < body.Length;
+            request.Content = new ByteArrayContent(useGzip ? compressed.ToArray() : body);
+            request.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+            if (useGzip)
+            {
+                request.Content.Headers.ContentEncoding.Add("gzip");
+            }
+
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (response.StatusCode != HttpStatusCode.OK)
                 throw new BridgeException($"Feed publish returned HTTP {(int)response.StatusCode}. The POST was not retried.");

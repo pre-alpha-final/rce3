@@ -58,6 +58,7 @@ public static class Program
         builder.Services.TryAddSingleton(_ => new HttpClient(new SocketsHttpHandler
         {
             AllowAutoRedirect = false,
+            AutomaticDecompression = DecompressionMethods.GZip,
             ConnectTimeout = TimeSpan.FromSeconds(15)
         }) { Timeout = Timeout.InfiniteTimeSpan });
         builder.Services.AddSingleton<MessageHistory>();

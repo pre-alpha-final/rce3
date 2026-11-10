@@ -117,7 +117,11 @@ public sealed class FeedState
     }
 }
 
-public sealed record FeedMessage(byte[] Body, string? ContentType);
+public sealed record FeedMessage(byte[] Body, string? ContentType)
+{
+    // A value means Body holds the gzip representation.
+    internal long? GzipDecodedLength { get; init; }
+}
 
 public sealed class FeedReaderState
 {
