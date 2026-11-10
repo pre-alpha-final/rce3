@@ -176,6 +176,7 @@ public static class FeedEndpoints
     private static IResult GetAdmin(
         string feedGuid,
         HttpResponse response,
+        IOptions<FeedServerOptions> options,
         ILogger<Program> logger)
     {
         if (!FeedRouteParser.TryParseFeed(feedGuid, out var feedId, out var problem))
@@ -186,7 +187,7 @@ public static class FeedEndpoints
 
         response.Headers.CacheControl = "no-store";
         return Results.Content(
-            FeedAdminPage.Create(feedId, Guid.NewGuid()),
+            FeedAdminPage.Create(feedId, Guid.NewGuid(), options.Value.MessagePreviewLimit),
             "text/html; charset=utf-8");
     }
 

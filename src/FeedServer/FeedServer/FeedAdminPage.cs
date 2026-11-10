@@ -1,12 +1,15 @@
+using System.Globalization;
+
 namespace FeedServer;
 
 internal static class FeedAdminPage
 {
-    public static string Create(Guid feedId, Guid readerId)
+    public static string Create(Guid feedId, Guid readerId, int messagePreviewLimit)
     {
         return Html
             .Replace("__FEED_ID__", feedId.ToString("D"), StringComparison.Ordinal)
-            .Replace("__READER_ID__", readerId.ToString("D"), StringComparison.Ordinal);
+            .Replace("__READER_ID__", readerId.ToString("D"), StringComparison.Ordinal)
+            .Replace("__MESSAGE_PREVIEW_LIMIT__", messagePreviewLimit.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
     }
 
     private const string Html = """
@@ -31,7 +34,7 @@ internal static class FeedAdminPage
             }
           </style>
         </head>
-        <body data-feed-id="__FEED_ID__" data-reader-id="__READER_ID__">
+        <body data-feed-id="__FEED_ID__" data-reader-id="__READER_ID__" data-message-preview-limit="__MESSAGE_PREVIEW_LIMIT__">
           <main class="container py-5">
             <header class="mb-5 text-center">
               <h1 class="display-2">RCE3 feed admin</h1>
@@ -82,6 +85,7 @@ internal static class FeedAdminPage
 
               const feedId = document.body.dataset.feedId;
               const readerId = document.body.dataset.readerId;
+              const messagePreviewLimit = Number(document.body.dataset.messagePreviewLimit);
               const feedUrl = `/${feedId}`;
               const readerUrl = `${feedUrl}/${readerId}`;
               const authorizationInput = document.querySelector("#authorization");
@@ -108,14 +112,28 @@ internal static class FeedAdminPage
                 sendButton.disabled = !connected;
               }
 
-              function appendMessage(body) {
+              function messagePreview(body, authorization) {
+                const text = authorization === "" ? body : body.replaceAll(authorization, "[redacted]");
+                let characters = 0;
+                let end = 0;
+                for (const character of text) {
+                  if (characters === messagePreviewLimit) {
+                    return text.slice(0, end) + " … [truncated]";
+                  }
+                  characters++;
+                  end += character.length;
+                }
+                return text;
+              }
+
+              function appendMessage(body, authorization) {
                 const item = document.createElement("div");
                 item.className = "message list-group-item";
                 const metadata = document.createElement("small");
                 metadata.className = "text-body-secondary";
                 metadata.textContent = `Received ${new Date().toLocaleTimeString()}`;
                 const content = document.createElement("pre");
-                content.textContent = body;
+                content.textContent = messagePreview(body, authorization);
                 item.append(metadata, content);
                 messages.append(item);
                 item.scrollIntoView({ block: "nearest" });
@@ -153,7 +171,7 @@ internal static class FeedAdminPage
                       throw new Error(await responseError("Receive", response));
                     }
 
-                    appendMessage(await response.text());
+                    appendMessage(await response.text(), authorization);
                   }
                 } catch (error) {
                   if (error.name !== "AbortError") {

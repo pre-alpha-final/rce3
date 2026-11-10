@@ -96,11 +96,23 @@ public class FeedEndpointTests
         Assert.Equal("text/html; charset=utf-8", firstResponse.Content.Headers.ContentType?.ToString());
         Assert.True(firstResponse.Headers.CacheControl?.NoStore);
         Assert.Contains($"data-feed-id=\"{feedId:D}\"", firstHtml, StringComparison.Ordinal);
+        Assert.Contains("data-message-preview-limit=\"500\"", firstHtml, StringComparison.Ordinal);
         Assert.Contains("RCE3 feed admin", firstHtml, StringComparison.Ordinal);
         Assert.Contains("Authorization value", firstHtml, StringComparison.Ordinal);
         Assert.DoesNotContain("__FEED_ID__", firstHtml, StringComparison.Ordinal);
         Assert.DoesNotContain("__READER_ID__", firstHtml, StringComparison.Ordinal);
         Assert.NotEqual(firstHtml, secondHtml);
+    }
+
+    [Fact]
+    public async Task FeedAdmin_UsesConfiguredMessagePreviewLimit()
+    {
+        using var factory = CreateFactory(("FeedServer:MessagePreviewLimit", "12"));
+        using var client = CreateClient(factory);
+
+        var html = await client.GetStringAsync($"/{Guid.NewGuid():D}/admin");
+
+        Assert.Contains("data-message-preview-limit=\"12\"", html, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -15,9 +15,17 @@ public sealed class CommunicationLogTests
     [Fact]
     public void Text_preview_is_truncated_only_beyond_limit()
     {
-        var exact = new string('x', CommunicationEntry.PreviewLimit);
+        var exact = new string('x', 500);
         Assert.Equal(exact, CommunicationEntry.FormatPreview(Encoding.UTF8.GetBytes(exact)));
         Assert.Equal(exact + " … [truncated]", CommunicationEntry.FormatPreview(Encoding.UTF8.GetBytes(exact + "tail")));
+    }
+
+    [Fact]
+    public void Text_preview_counts_non_bmp_characters_once()
+    {
+        const string exact = "a🚀";
+        Assert.Equal(exact, CommunicationEntry.FormatPreview(Encoding.UTF8.GetBytes(exact), limit: 2));
+        Assert.Equal(exact + " … [truncated]", CommunicationEntry.FormatPreview(Encoding.UTF8.GetBytes(exact + "b"), limit: 2));
     }
 
     [Fact]
@@ -30,10 +38,10 @@ public sealed class CommunicationLogTests
     [Fact]
     public void Binary_preview_is_bounded_and_marks_truncation()
     {
-        var limit = CommunicationEntry.PreviewLimit / 3;
-        var bytes = Enumerable.Repeat((byte)0xff, limit + 1).ToArray();
-        Assert.Equal("Hex: " + new string('f', limit * 2) + " … [truncated]", CommunicationEntry.FormatPreview(bytes));
-        Assert.Equal("Hex: " + new string('f', limit * 2), CommunicationEntry.FormatPreview(bytes[..limit]));
+        const int limit = 13;
+        byte[] bytes = [0xff, 0x00, 0xc3, 0x28, 0xfe];
+        Assert.Equal("Hex: ff00c328 … [truncated]", CommunicationEntry.FormatPreview(bytes, limit));
+        Assert.Equal("Hex: ff00c328", CommunicationEntry.FormatPreview(bytes[..4], limit));
     }
 
     [Fact]
@@ -85,6 +93,26 @@ public sealed class CommunicationLogTests
     }
 
     [Fact]
+    public async Task Configured_limit_applies_to_received_and_sent_previews_after_redaction()
+    {
+        await using var h = new ConnectionHarness(messagePreviewLimit: 5);
+        const string body = "a hidden tail";
+        var bytes = Encoding.UTF8.GetBytes(body);
+        var poll = await h.ReadyAsync("hidden");
+        poll.Reply(HttpStatusCode.OK, bytes);
+        await h.Handler.NextAsync();
+
+        var sending = h.Connection.PublishAsync(body, "text/plain");
+        var post = await h.Handler.NextAsync();
+        Assert.Equal(bytes, post.Body);
+        post.Reply(HttpStatusCode.OK, "Message distributed to 1 reader(s)."u8.ToArray());
+        Assert.Equal(1, await sending);
+
+        Assert.Equal(["Received", "Sent"], h.Connection.Entries.Select(entry => entry.Direction));
+        Assert.All(h.Connection.Entries, entry => Assert.Equal("a [re … [truncated]", entry.Preview));
+    }
+
+    [Fact]
     public async Task Error_log_redacts_payload_and_does_not_include_transport_exception()
     {
         await using var h = new ConnectionHarness();
@@ -120,7 +148,7 @@ public sealed class CommunicationLogTests
         poll.Reply(HttpStatusCode.OK, Encoding.UTF8.GetBytes(new string('x', 1000)));
         await h.Handler.NextAsync();
         var preview = Assert.Single(h.Connection.Entries).Preview;
-        Assert.Equal(CommunicationEntry.PreviewLimit + " … [truncated]".Length, preview.Length);
+        Assert.Equal(CommunicationEntry.DefaultPreviewLimit + " … [truncated]".Length, preview.Length);
         Assert.DoesNotContain("x", preview);
         Assert.EndsWith(" … [truncated]", preview);
     }

@@ -47,6 +47,7 @@ public class FeedRequestBodyReaderTests
         Assert.False(FeedServerOptions.IsValid(new FeedServerOptions { PollTimeout = TimeSpan.Zero }));
         Assert.False(FeedServerOptions.IsValid(new FeedServerOptions { FeedTtl = TimeSpan.Zero }));
         Assert.False(FeedServerOptions.IsValid(new FeedServerOptions { MaxQueuedMessagesPerReader = 0 }));
+        Assert.False(FeedServerOptions.IsValid(new FeedServerOptions { MessagePreviewLimit = 0 }));
     }
 
     [Fact]

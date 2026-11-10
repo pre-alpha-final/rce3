@@ -6,7 +6,12 @@ using Microsoft.AspNetCore.Components.WebAssembly.Http;
 
 namespace TabletUI.Services;
 
-public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider, ConnectionStorage storage, TimeSpan? retryDelay = null)
+public sealed class FeedConnection(
+    HttpClient client,
+    TimeProvider timeProvider,
+    ConnectionStorage storage,
+    TimeSpan? retryDelay = null,
+    int messagePreviewLimit = CommunicationEntry.DefaultPreviewLimit)
     : IAsyncDisposable
 {
     public const int LogLimit = 200;
@@ -296,14 +301,9 @@ public sealed class FeedConnection(HttpClient client, TimeProvider timeProvider,
     {
         if (_session != session) { return; }
         var key = session.Settings.RCE3_AUTH;
-        string Redact(string text) => key.Length == 0 ? text : text.Replace(key, "[redacted]", StringComparison.Ordinal);
-        var preview = body is null ? string.Empty : Redact(CommunicationEntry.FormatPreview(body));
-        if (preview.Length > CommunicationEntry.PreviewLimit)
-        {
-            preview = preview[..CommunicationEntry.PreviewLimit] + " … [truncated]";
-        }
-        var entry = new CommunicationEntry(timeProvider.GetUtcNow(), direction, Redact(detail),
-            contentType is null ? null : Redact(contentType), preview);
+        var preview = body is null ? string.Empty : CommunicationEntry.FormatPreview(body, messagePreviewLimit, key);
+        var entry = new CommunicationEntry(timeProvider.GetUtcNow(), direction, CommunicationEntry.Redact(detail, key),
+            contentType is null ? null : CommunicationEntry.Redact(contentType, key), preview);
         lock (_entries)
         {
             _entries.Add(entry);
