@@ -23,6 +23,7 @@ public static class FeedEndpoints
         app.MapGet("/", RedirectToNewFeed);
         app.MapGet("/{feedGuid}", GetFeed);
         app.MapPost("/{feedGuid}", PostFeed);
+        app.MapPost("/{feedGuid}/kill-reader-queues", KillReaderQueues);
         app.MapGet("/{feedGuid}/admin", GetAdmin);
         app.MapGet("/{feedGuid}/{readerGuid}", GetReader).WithMetadata(new ReaderPollMetadata());
         app.MapGet("/{feedGuid}/{readerGuid}/reset", ResetReader);
@@ -286,9 +287,41 @@ public static class FeedEndpoints
             return AccessFailure(access);
         }
 
-        access.Feed!.EnsureReader(readerId).Reset();
+        access.Feed!.ResetReader(readerId);
         FeedServerLog.ReaderReset(logger, readerId, feedId);
         return Results.Redirect($"/{feedId:D}/{readerId:D}");
+    }
+
+    private static IResult KillReaderQueues(
+        string feedGuid,
+        HttpRequest request,
+        FeedStore feedStore,
+        ILogger<Program> logger)
+    {
+        if (!FeedRouteParser.TryParseFeed(feedGuid, out var feedId, out var problem))
+        {
+            FeedServerLog.MalformedFeedRoute(logger, feedGuid, problem);
+            return BadRequest("Bad feed route", problem);
+        }
+
+        if (!FeedAuthorizationKey.TryRead(request, out var key, out var authorizationProblem))
+        {
+            FeedServerLog.InvalidAuthorization(logger, feedId, authorizationProblem);
+            return AccessFailure(FeedAccessResult.Failure(
+                StatusCodes.Status401Unauthorized,
+                "Invalid authorization",
+                authorizationProblem));
+        }
+
+        var access = feedStore.AuthorizeExisting(feedId, key);
+        if (access is not null && !access.Succeeded)
+        {
+            return AccessFailure(access);
+        }
+
+        var count = access?.Feed?.KillReaderQueues() ?? 0;
+        FeedServerLog.ReaderQueuesKilled(logger, feedId, count);
+        return Results.Text($"Killed {count} reader queue(s).", "text/plain");
     }
 
     private static IResult BadPath(HttpRequest request, ILogger<Program> logger)
@@ -296,7 +329,7 @@ public static class FeedEndpoints
         FeedServerLog.UnsupportedFeedPath(logger, request.Path);
         return BadRequest(
             "Bad feed path",
-            $"'{request.Path}' does not match GET /{{feedGuid}}, POST /{{feedGuid}}, GET /{{feedGuid}}/admin, GET /{{feedGuid}}/{{readerGuid}}, or GET /{{feedGuid}}/{{readerGuid}}/reset.");
+            $"'{request.Path}' does not match GET /{{feedGuid}}, POST /{{feedGuid}}, GET /{{feedGuid}}/admin, GET /{{feedGuid}}/{{readerGuid}}, GET /{{feedGuid}}/{{readerGuid}}/reset, or POST /{{feedGuid}}/kill-reader-queues.");
     }
 
     private static IResult BadRequest(string title, string detail)

@@ -31,15 +31,20 @@ public static class FeedHelpText
             "       Open the browser debug client without creating or touching the feed.",
             "  GET  /{FeedId}/{ReaderId}/reset",
             "       Clear this reader queue, make it usable again, and redirect to it.",
+            "  POST /{FeedId}/kill-reader-queues",
+            "       Discard every reader queue and return the number removed as plain text.",
+            "       Pending polls end with 204. The next poll for each reader creates a fresh queue.",
+            "       Uses the feed's access rules and leaves its expiration deadline in place.",
+            "       A missing or expired feed returns a count of zero.",
             string.Empty,
             "IDs:",
             "  FeedId and ReaderId must be valid UUIDs.",
             string.Empty,
             "Auth:",
-            "  The first valid feed request creates the feed mode.",
+            "  The first valid publish, reader poll, or reader reset sets the feed mode.",
             "  No Authorization header creates an open feed; open feeds reject Authorization.",
             "  Authorization: <key> creates a protected feed; send the same key every time.",
             string.Empty,
-            FormattableString.Invariant($"Lifetime: expires after {options.FeedTtl.TotalHours:0.###} hours without valid GET/POST activity."));
+            FormattableString.Invariant($"Lifetime: expires after {options.FeedTtl.TotalHours:0.###} hours without a valid publish, reader poll, or reader reset."));
     }
 }

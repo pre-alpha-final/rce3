@@ -1,12 +1,11 @@
-using System.Collections.Concurrent;
 using System.Threading.Channels;
 
 namespace FeedServer;
 
 public sealed class FeedState
 {
-    private readonly ConcurrentDictionary<Guid, FeedReaderState> readers = new();
-    private readonly Lock activityLock = new();
+    private readonly Dictionary<Guid, FeedReaderState> readers = new();
+    private readonly Lock stateLock = new();
     private readonly int maxQueuedMessagesPerReader;
     private bool isExpiring;
     private DateTimeOffset lastActivityAt;
@@ -38,37 +37,91 @@ public sealed class FeedState
     {
         get
         {
-            lock (activityLock)
+            lock (stateLock)
             {
                 return lastActivityAt;
             }
         }
     }
 
-    public int ReaderCount => readers.Count;
+    public int ReaderCount
+    {
+        get
+        {
+            lock (stateLock)
+            {
+                return readers.Count;
+            }
+        }
+    }
 
     public FeedReaderState EnsureReader(Guid readerId)
     {
-        return readers.GetOrAdd(readerId, _ => new FeedReaderState(maxQueuedMessagesPerReader));
+        lock (stateLock)
+        {
+            return EnsureReaderLocked(readerId);
+        }
+    }
+
+    internal void ResetReader(Guid readerId)
+    {
+        lock (stateLock)
+        {
+            EnsureReaderLocked(readerId).Reset();
+        }
+    }
+
+    private FeedReaderState EnsureReaderLocked(Guid readerId)
+    {
+        if (!readers.TryGetValue(readerId, out var reader))
+        {
+            reader = new FeedReaderState(maxQueuedMessagesPerReader);
+            readers.Add(readerId, reader);
+        }
+
+        return reader;
     }
 
     public int Publish(FeedMessage message)
     {
-        var deliveredCount = 0;
-        foreach (var reader in readers.Values)
+        lock (stateLock)
         {
-            if (reader.Enqueue(message))
+            var deliveredCount = 0;
+            foreach (var reader in readers.Values)
             {
-                deliveredCount++;
+                if (reader.Enqueue(message))
+                {
+                    deliveredCount++;
+                }
             }
-        }
 
-        return deliveredCount;
+            return deliveredCount;
+        }
+    }
+
+    internal int KillReaderQueues()
+    {
+        lock (stateLock)
+        {
+            if (isExpiring)
+            {
+                return 0;
+            }
+
+            var count = readers.Count;
+            foreach (var reader in readers.Values)
+            {
+                reader.Retire();
+            }
+
+            readers.Clear();
+            return count;
+        }
     }
 
     public bool TryTouch(DateTimeOffset activityAt)
     {
-        lock (activityLock)
+        lock (stateLock)
         {
             if (isExpiring)
             {
@@ -91,7 +144,7 @@ public sealed class FeedState
 
     public bool TryBeginExpiration(DateTimeOffset now, TimeSpan ttl)
     {
-        lock (activityLock)
+        lock (stateLock)
         {
             if (isExpiring)
             {
@@ -110,9 +163,12 @@ public sealed class FeedState
 
     public void CompleteReaders()
     {
-        foreach (var reader in readers.Values)
+        lock (stateLock)
         {
-            reader.Complete();
+            foreach (var reader in readers.Values)
+            {
+                reader.Complete();
+            }
         }
     }
 }
@@ -129,7 +185,14 @@ public sealed class FeedReaderState
     private readonly int maxQueuedMessages;
     private Channel<FeedMessage> messages;
     private int resetGeneration;
-    private int unusable;
+    private volatile ReaderStatus status;
+
+    private enum ReaderStatus
+    {
+        Active,
+        Unusable,
+        Retired
+    }
 
     public FeedReaderState(int maxQueuedMessages)
     {
@@ -137,13 +200,13 @@ public sealed class FeedReaderState
         messages = CreateChannel(maxQueuedMessages);
     }
 
-    public bool IsUnusable => Volatile.Read(ref unusable) == 1;
+    public bool IsUnusable => status == ReaderStatus.Unusable;
 
     public bool Enqueue(FeedMessage message)
     {
         lock (stateLock)
         {
-            if (IsUnusable)
+            if (status != ReaderStatus.Active)
             {
                 return false;
             }
@@ -153,7 +216,8 @@ public sealed class FeedReaderState
                 return true;
             }
 
-            MarkUnusable();
+            status = ReaderStatus.Unusable;
+            messages.Writer.TryComplete();
             return false;
         }
     }
@@ -166,14 +230,32 @@ public sealed class FeedReaderState
         }
     }
 
+    internal void Retire()
+    {
+        lock (stateLock)
+        {
+            status = ReaderStatus.Retired;
+            messages.Writer.TryComplete();
+            while (messages.Reader.TryRead(out _))
+            {
+                // Release queued messages even if a pending poll still holds this reader.
+            }
+        }
+    }
+
     public void Reset()
     {
         Channel<FeedMessage> previousMessages;
         lock (stateLock)
         {
+            if (status == ReaderStatus.Retired)
+            {
+                return;
+            }
+
             previousMessages = messages;
             messages = CreateChannel(maxQueuedMessages);
-            Volatile.Write(ref unusable, 0);
+            status = ReaderStatus.Active;
             resetGeneration++;
         }
 
@@ -186,6 +268,11 @@ public sealed class FeedReaderState
         int currentResetGeneration;
         lock (stateLock)
         {
+            if (status == ReaderStatus.Retired)
+            {
+                return null;
+            }
+
             currentMessages = messages;
             currentResetGeneration = resetGeneration;
         }
@@ -196,7 +283,9 @@ public sealed class FeedReaderState
         try
         {
             var message = await currentMessages.Reader.ReadAsync(linkedCts.Token);
-            return currentResetGeneration == Volatile.Read(ref resetGeneration) ? message : null;
+            return currentResetGeneration == Volatile.Read(ref resetGeneration) && status != ReaderStatus.Retired
+                ? message
+                : null;
         }
         catch (ChannelClosedException)
         {
@@ -205,14 +294,6 @@ public sealed class FeedReaderState
         catch (OperationCanceledException)
         {
             return null;
-        }
-    }
-
-    private void MarkUnusable()
-    {
-        if (Interlocked.Exchange(ref unusable, 1) == 0)
-        {
-            messages.Writer.TryComplete();
         }
     }
 

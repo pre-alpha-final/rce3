@@ -10,6 +10,7 @@ public class FeedCorsTests
 {
     [Theory]
     [InlineData("POST", "")]
+    [InlineData("POST", "/kill-reader-queues")]
     [InlineData("GET", "")]
     [InlineData("GET", "/admin")]
     [InlineData("GET", "/{reader}")]
@@ -30,7 +31,7 @@ public class FeedCorsTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Preflight_DoesNotAuthorizeTouchCreateReadOrResetReaders(bool protectedFeed)
+    public async Task Preflight_DoesNotAuthorizeTouchOrChangeReaders(bool protectedFeed)
     {
         var timeProvider = new ManualTimeProvider();
         using var factory = CreateFactory(timeProvider);
@@ -52,6 +53,7 @@ public class FeedCorsTests
         foreach (var (path, method) in new[]
         {
             ($"/{feedId}", "POST"),
+            ($"/{feedId}/kill-reader-queues", "POST"),
             (readerPath, "GET"),
             (readerPath + "/reset", "GET"),
             ($"/{feedId}/{Guid.NewGuid()}", "GET"),

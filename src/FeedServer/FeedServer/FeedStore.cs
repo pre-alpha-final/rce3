@@ -35,7 +35,7 @@ public sealed class FeedStore
         while (true)
         {
             var feed = feeds.GetOrAdd(feedId, _ => CreateFeed(feedId, key, now));
-            if (TryExpire(feedId, feed, now))
+            if (TryExpire(feedId, feed, now, out _))
             {
                 continue;
             }
@@ -59,7 +59,7 @@ public sealed class FeedStore
                 return null;
             }
 
-            if (TryExpire(feedId, feed, now))
+            if (TryExpire(feedId, feed, now, out _))
             {
                 continue;
             }
@@ -75,7 +75,8 @@ public sealed class FeedStore
 
         foreach (var pair in feeds)
         {
-            if (TryExpire(pair.Key, pair.Value, now))
+            TryExpire(pair.Key, pair.Value, now, out var removed);
+            if (removed)
             {
                 expiredCount++;
             }
@@ -155,19 +156,21 @@ public sealed class FeedStore
         return FeedAccessResult.Success(feed);
     }
 
-    private bool TryExpire(Guid feedId, FeedState feed, DateTimeOffset now)
+    private bool TryExpire(Guid feedId, FeedState feed, DateTimeOffset now, out bool removed)
     {
+        removed = false;
         if (!feed.TryBeginExpiration(now, feedTtl))
         {
             return false;
         }
 
-        if (!TryRemove(feedId, feed))
+        removed = TryRemove(feedId, feed);
+        if (removed)
         {
-            return false;
+            Expire(feed);
         }
 
-        Expire(feed);
+        // Callers must retry lookup even when another request removed this instance.
         return true;
     }
 

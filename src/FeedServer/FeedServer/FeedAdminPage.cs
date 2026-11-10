@@ -53,6 +53,8 @@ internal static class FeedAdminPage
                 <div class="d-flex flex-wrap gap-2 mt-3">
                   <button id="connect" class="btn btn-primary" type="button">Connect</button>
                   <button id="disconnect" class="btn btn-outline-secondary" type="button" disabled>Disconnect</button>
+                  <button id="kill-reader-queues" class="btn btn-outline-danger" type="button">Kill reader queues</button>
+                  <span id="kill-reader-queues-status" class="align-self-center" role="status"></span>
                 </div>
                 <p id="status" class="alert alert-warning mt-3 mb-0" role="status" aria-live="polite">Disconnected.</p>
               </div>
@@ -91,6 +93,8 @@ internal static class FeedAdminPage
               const authorizationInput = document.querySelector("#authorization");
               const connectButton = document.querySelector("#connect");
               const disconnectButton = document.querySelector("#disconnect");
+              const killReaderQueuesButton = document.querySelector("#kill-reader-queues");
+              const killReaderQueuesStatus = document.querySelector("#kill-reader-queues-status");
               const status = document.querySelector("#status");
               const sendForm = document.querySelector("#send-form");
               const messageInput = document.querySelector("#message");
@@ -216,6 +220,30 @@ internal static class FeedAdminPage
 
               disconnectButton.addEventListener("click", () => {
                 stop(generation, "Disconnected.");
+              });
+
+              killReaderQueuesButton.addEventListener("click", async () => {
+                if (!window.confirm("Discard all queued messages for this feed?")) {
+                  return;
+                }
+
+                const authorization = connection?.authorization ?? authorizationInput.value;
+                killReaderQueuesButton.disabled = true;
+                killReaderQueuesStatus.textContent = "Killing reader queues…";
+
+                try {
+                  const response = await fetch(`${feedUrl}/kill-reader-queues`, {
+                    method: "POST",
+                    headers: requestHeaders(authorization)
+                  });
+                  killReaderQueuesStatus.textContent = response.ok
+                    ? await response.text()
+                    : await responseError("Kill reader queues", response);
+                } catch {
+                  killReaderQueuesStatus.textContent = "Kill reader queues request failed.";
+                } finally {
+                  killReaderQueuesButton.disabled = false;
+                }
               });
 
               sendForm.addEventListener("submit", async event => {

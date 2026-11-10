@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FeedServer.Tests;
 
@@ -77,6 +78,8 @@ public class FeedEndpointTests
         await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}/reset/extra"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.DeleteAsync($"/{feedId}"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.PostAsync($"/{feedId}/admin", Text("body")), HttpStatusCode.BadRequest);
+        await AssertStatusAsync(client.PostAsync("/not-a-guid/kill-reader-queues", null), HttpStatusCode.BadRequest);
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/kill-reader-queues"), HttpStatusCode.BadRequest);
         await AssertStatusAsync(client.GetAsync("/openapi/v1.json"), HttpStatusCode.BadRequest);
     }
 
@@ -99,6 +102,7 @@ public class FeedEndpointTests
         Assert.Contains("data-message-preview-limit=\"500\"", firstHtml, StringComparison.Ordinal);
         Assert.Contains("RCE3 feed admin", firstHtml, StringComparison.Ordinal);
         Assert.Contains("Authorization value", firstHtml, StringComparison.Ordinal);
+        Assert.Contains(">Kill reader queues</button>", firstHtml, StringComparison.Ordinal);
         Assert.DoesNotContain("__FEED_ID__", firstHtml, StringComparison.Ordinal);
         Assert.DoesNotContain("__READER_ID__", firstHtml, StringComparison.Ordinal);
         Assert.NotEqual(firstHtml, secondHtml);
@@ -169,6 +173,8 @@ public class FeedEndpointTests
         await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}", "open-key", Text("body")), HttpStatusCode.Forbidden);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}", "open-key"), HttpStatusCode.Forbidden);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "open-key"), HttpStatusCode.Forbidden);
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}/kill-reader-queues", "open-key"), HttpStatusCode.Forbidden);
+        await AssertKillReaderQueuesAsync(client, feedId, count: 1);
     }
 
     [Fact]
@@ -191,6 +197,10 @@ public class FeedEndpointTests
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}", "wrong"), HttpStatusCode.Unauthorized);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", null), HttpStatusCode.Unauthorized);
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "wrong"), HttpStatusCode.Unauthorized);
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}/kill-reader-queues", null), HttpStatusCode.Unauthorized);
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}/kill-reader-queues", "wrong"), HttpStatusCode.Unauthorized);
+        await AssertKillReaderQueuesAsync(client, feedId, count: 1, authorization: "secret");
+        await AssertStatusAsync(SendAsync(client, HttpMethod.Post, $"/{feedId}/kill-reader-queues", null), HttpStatusCode.Unauthorized);
 
         await AssertRedirectAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}/reset", "secret"), $"/{feedId:D}/{readerId:D}");
         await AssertStatusAsync(SendAsync(client, HttpMethod.Get, $"/{feedId}/{readerId}", "secret"), HttpStatusCode.NoContent);
@@ -247,6 +257,7 @@ public class FeedEndpointTests
         Assert.Contains($"FeedId: {feedId:D}", help, StringComparison.Ordinal);
         Assert.DoesNotContain("Mode:", help, StringComparison.Ordinal);
         Assert.Contains("GET  /{FeedId}/admin", help, StringComparison.Ordinal);
+        Assert.Contains("POST /{FeedId}/kill-reader-queues", help, StringComparison.Ordinal);
         Assert.Contains("Upload transfer limit: 123 bytes before decoding", help, StringComparison.Ordinal);
         Assert.Contains("Content-Encoding: gzip", help, StringComparison.Ordinal);
         Assert.Contains("after 00:00:03", help, StringComparison.Ordinal);
@@ -497,6 +508,135 @@ public class FeedEndpointTests
         Assert.Equal("third", await ReadStringAsync(client, feedId, readerId));
     }
 
+    [Fact]
+    public async Task KillReaderQueues_DiscardsBacklogsAndOverflowedReadersOnOnlyTheTargetFeed()
+    {
+        using var factory = CreateFactory(("FeedServer:MaxQueuedMessagesPerReader", "1"));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+        var otherFeedId = Guid.NewGuid();
+        var overflowedReaderId = Guid.NewGuid();
+        var queuedReaderId = Guid.NewGuid();
+        var overflowedReaderPath = $"/{feedId}/{overflowedReaderId}";
+        var queuedReaderPath = $"/{feedId}/{queuedReaderId}";
+        var otherReaderPath = $"/{otherFeedId}/{queuedReaderId}";
+
+        await AssertRedirectAsync(client.GetAsync($"{overflowedReaderPath}/reset"), overflowedReaderPath);
+        await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("stale")), HttpStatusCode.OK);
+        await AssertRedirectAsync(client.GetAsync($"{queuedReaderPath}/reset"), queuedReaderPath);
+        await AssertStatusAsync(client.PostAsync($"/{feedId}", Text("overflow")), HttpStatusCode.OK);
+        await AssertStatusAsync(client.GetAsync(overflowedReaderPath), HttpStatusCode.Gone);
+
+        await AssertRedirectAsync(client.GetAsync($"{otherReaderPath}/reset"), otherReaderPath);
+        await AssertStatusAsync(client.PostAsync($"/{otherFeedId}", Text("keep")), HttpStatusCode.OK);
+
+        await AssertKillReaderQueuesAsync(client, feedId, count: 2);
+        await AssertKillReaderQueuesAsync(client, feedId, count: 0);
+        using var beforeReadersReturn = await client.PostAsync($"/{feedId}", Text("no readers"));
+        Assert.Equal(HttpStatusCode.OK, beforeReadersReturn.StatusCode);
+        Assert.Equal("Message distributed to 0 reader(s).", await beforeReadersReturn.Content.ReadAsStringAsync());
+        Assert.Equal("keep", await ReadStringAsync(client, otherFeedId, queuedReaderId));
+
+        await AssertStatusAsync(client.GetAsync(overflowedReaderPath), HttpStatusCode.NoContent);
+        await AssertStatusAsync(client.GetAsync(queuedReaderPath), HttpStatusCode.NoContent);
+        using var afterReadersReturn = await client.PostAsync($"/{feedId}", Text("fresh"));
+        Assert.Equal(HttpStatusCode.OK, afterReadersReturn.StatusCode);
+        Assert.Equal("Message distributed to 2 reader(s).", await afterReadersReturn.Content.ReadAsStringAsync());
+        Assert.Equal("fresh", await ReadStringAsync(client, feedId, overflowedReaderId));
+        Assert.Equal("fresh", await ReadStringAsync(client, feedId, queuedReaderId));
+    }
+
+    [Fact]
+    public async Task KillReaderQueues_CompletesPendingReadsAndRetiresOldReaderInstances()
+    {
+        using var factory = CreateFactory();
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+        var readerId = Guid.NewGuid();
+        var store = factory.Services.GetRequiredService<FeedStore>();
+        var feed = store.GetOrCreate(feedId, key: null).Feed!;
+        var reader = feed.EnsureReader(readerId);
+        var pending = reader.ReadAsync(TimeSpan.FromSeconds(30), CancellationToken.None).AsTask();
+        Assert.False(pending.IsCompleted);
+
+        await AssertKillReaderQueuesAsync(client, feedId, count: 1);
+
+        Assert.Null(await pending.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.Equal(0, feed.ReaderCount);
+        reader.Reset();
+        Assert.False(reader.Enqueue(new FeedMessage([1], null)));
+        Assert.Null(await reader.ReadAsync(TimeSpan.FromSeconds(30), CancellationToken.None));
+        await AssertStatusAsync(client.GetAsync($"/{feedId}/{readerId}"), HttpStatusCode.NoContent);
+        Assert.NotSame(reader, feed.EnsureReader(readerId));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("unused-key")]
+    public async Task KillReaderQueues_MissingFeedReturnsZeroWithoutCreatingIt(string? authorization)
+    {
+        using var factory = CreateFactory();
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+
+        await AssertKillReaderQueuesAsync(client, feedId, count: 0, authorization: authorization);
+
+        var store = factory.Services.GetRequiredService<FeedStore>();
+        Assert.Null(store.AuthorizeExisting(feedId, key: null));
+    }
+
+    [Theory]
+    [InlineData(" ")]
+    [InlineData("first", "second")]
+    public async Task KillReaderQueues_RejectsInvalidAuthorizationHeader(string authorization, string? secondAuthorization = null)
+    {
+        using var factory = CreateFactory();
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/{feedId}/kill-reader-queues");
+        request.Headers.TryAddWithoutValidation("Authorization",
+            secondAuthorization is null ? [authorization] : [authorization, secondAuthorization]);
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Null(factory.Services.GetRequiredService<FeedStore>().AuthorizeExisting(feedId, key: null));
+    }
+
+    [Fact]
+    public async Task KillReaderQueues_DoesNotExtendExpirationOrRecreateExpiredFeed()
+    {
+        var timeProvider = new ManualTimeProvider();
+        using var baseFactory = CreateFactory(("FeedServer:FeedTtl", "01:00:00"));
+        using var factory = baseFactory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => services.AddSingleton<TimeProvider>(timeProvider)));
+        using var client = CreateClient(factory);
+        var feedId = Guid.NewGuid();
+        var store = factory.Services.GetRequiredService<FeedStore>();
+        var feed = store.GetOrCreate(feedId, key: null).Feed!;
+        feed.EnsureReader(Guid.NewGuid());
+        var activityBefore = feed.LastActivityAt;
+
+        timeProvider.UtcNow += TimeSpan.FromMinutes(45);
+        await AssertKillReaderQueuesAsync(client, feedId, count: 1);
+        Assert.Equal(activityBefore, feed.LastActivityAt);
+        Assert.Same(feed, store.AuthorizeExisting(feedId, key: null)!.Feed);
+
+        timeProvider.UtcNow += TimeSpan.FromMinutes(16);
+        await AssertKillReaderQueuesAsync(client, feedId, count: 0, authorization: "unused-key");
+        Assert.Null(store.AuthorizeExisting(feedId, key: null));
+    }
+
+    private static async Task AssertKillReaderQueuesAsync(
+        HttpClient client, Guid feedId, int count, string? authorization = null)
+    {
+        using var response = await SendAsync(client, HttpMethod.Post, $"/{feedId:N}/kill-reader-queues", authorization);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal($"Killed {count} reader queue(s).", await response.Content.ReadAsStringAsync());
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(params (string Key, string Value)[] overrides)
     {
         return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -578,6 +718,13 @@ public class FeedEndpointTests
     private static StringContent Text(string value)
     {
         return new StringContent(value, Encoding.UTF8, "text/plain");
+    }
+
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = DateTimeOffset.UnixEpoch;
+
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     }
 
     private sealed class UnknownLengthContent : HttpContent

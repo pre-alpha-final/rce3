@@ -70,4 +70,7 @@ internal static partial class FeedServerLog
 
     [LoggerMessage(19, LogLevel.Information, "Expired {ExpiredFeedCount} inactive feed(s).")]
     public static partial void InactiveFeedsExpired(ILogger logger, int expiredFeedCount);
+
+    [LoggerMessage(20, LogLevel.Information, "Killed {ReaderCount} reader queue(s) for feed {FeedId}.")]
+    public static partial void ReaderQueuesKilled(ILogger logger, Guid feedId, int readerCount);
 }
