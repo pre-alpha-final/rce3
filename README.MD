@@ -63,7 +63,9 @@ The debug client displays received bodies as text.
 
 ## MCP bridge
 
-[Rce3Mcp](src/Examples/Rce3Mcp/README.MD) is a standalone .NET 10 bridge exposing `send_message`, `get_messages`, and `get_status` over MCP Streamable HTTP at `http://localhost:5138/mcp`. Configure one feed with `RCE3_FEED` and optional raw `RCE3_AUTH`. A background reader collects messages into bounded, shared in-memory history; LLM clients retrieve recent messages or continue from their own cursors.
+[Rce3Mcp](src/Examples/Rce3Mcp/README.MD) is a standalone .NET 10 bridge exposing `send_message`, `get_messages`, `get_status`, and `requestproxy` over MCP Streamable HTTP at `http://localhost:5138/mcp`. Configure one feed with `RCE3_FEED` and optional raw `RCE3_AUTH`. A background reader collects messages into bounded, shared in-memory history; LLM clients retrieve recent messages or continue from their own cursors.
+
+The `requestproxy` tool sends a GET command to a running Request Proxy on the same feed and waits for the first HTTP response. Start the proxy and load a HAR for the target origin before calling the tool. Replies are matched by URL, so a late reply can satisfy a later call for the same URL. [Request Proxy setup](src/Examples/RequestProxy/README.MD)
 
 ## Example app reader identities
 

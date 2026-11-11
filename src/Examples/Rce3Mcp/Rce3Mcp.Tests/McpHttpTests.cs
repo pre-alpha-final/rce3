@@ -19,7 +19,7 @@ public sealed class McpHttpTests
         await using var firstClient = await host.ConnectAsync(protocol);
         await using var secondClient = await host.ConnectAsync(protocol);
         var tools = await firstClient.ListToolsAsync();
-        Assert.Equal(new[] { "get_messages", "get_status", "send_message" }, tools.Select(tool => tool.Name).Order().ToArray());
+        Assert.Equal(new[] { "get_messages", "get_status", "requestproxy", "send_message" }, tools.Select(tool => tool.Name).Order().ToArray());
         Assert.Equal("Rce3Mcp", firstClient.ServerInfo?.Name);
         var sendTool = tools.Single(tool => tool.Name == "send_message").ProtocolTool;
         Assert.False(sendTool.Annotations!.ReadOnlyHint);
@@ -31,6 +31,13 @@ public sealed class McpHttpTests
         Assert.True(properties.TryGetProperty("encoding", out _));
         Assert.True(properties.TryGetProperty("contentType", out _));
         Assert.False(properties.TryGetProperty("cancellationToken", out _));
+        var proxyTool = tools.Single(tool => tool.Name == "requestproxy").ProtocolTool;
+        Assert.False(proxyTool.Annotations!.ReadOnlyHint);
+        Assert.False(proxyTool.Annotations.IdempotentHint);
+        Assert.True(proxyTool.Annotations.OpenWorldHint);
+        Assert.True(proxyTool.Annotations.DestructiveHint);
+        Assert.Equal("url", Assert.Single(proxyTool.InputSchema.GetProperty("required").EnumerateArray()).GetString());
+        Assert.Equal("url", Assert.Single(proxyTool.InputSchema.GetProperty("properties").EnumerateObject()).Name);
         Assert.All(tools.Where(tool => tool.Name is "get_messages" or "get_status"), tool => Assert.True(tool.ProtocolTool.Annotations!.ReadOnlyHint));
 
         var premature = await firstClient.CallToolAsync("send_message", new Dictionary<string, object?> { ["body"] = "test" });

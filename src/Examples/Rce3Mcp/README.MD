@@ -44,6 +44,7 @@ The bridge negotiates gzip for RCE3 polls and uses gzip for RCE3 publishes when 
 | `send_message` | Required `body`; optional `encoding` (`utf8` or `base64`) and `contentType` | POST exact decoded bytes and return `acceptedReaderCount`. No envelope, newline, or sender identity is added. |
 | `get_messages` | Optional `afterCursor`; optional `limit` (default 20, range 1-100) | Read history without removing messages. Return `messages`, `nextCursor`, and `historyGap`. |
 | `get_status` | None | Read local connection state, reader ID, UTC last-successful-poll/message times, history and eviction counts, reader reset count, and sanitized last error. No network request is made. |
+| `requestproxy` | Required absolute HTTP(S) `url` | Ask a configured Request Proxy to make a GET and return the first valid HTTP response. |
 
 Results include structured JSON and equivalent text content. Validation and upstream failures return MCP tool errors. Only `/mcp` is exposed; there is no separate status, health, dashboard, resources, or prompts endpoint.
 
@@ -62,6 +63,24 @@ Binary arguments:
 ```
 
 Text defaults to `text/plain; charset=utf-8`; Base64 defaults to `application/octet-stream`. Complete supplied Content-Type values are preserved. The acceptance count means reader queues accepting the message, not confirmed delivery or downstream processing. A failed or interrupted POST is never automatically retried. Interrupted requests and invalid acceptance responses leave delivery uncertain; inspect history before deciding to resend.
+
+## Request Proxy
+
+Start Request Proxy with the same `RCE3_FEED` and optional `RCE3_AUTH` as Rce3Mcp. Load a HAR for the target origin and wait for `Reader ready.` The MCP tool waits for its own reader to be ready. [Request Proxy setup](../RequestProxy/README.MD)
+
+Call `requestproxy` with a URL on the imported origin.
+
+```json
+{"url":"https://example.com/api/profile"}
+```
+
+The tool trims surrounding whitespace and accepts absolute HTTP(S) URLs without credentials, fragments, or line breaks. It sends the original trimmed URL, including its query, and matches replies by that exact URL. A late reply or another publisher's matching reply can satisfy a later call for the same URL.
+
+Results contain `status`, `statusText`, `ok`, `headers` with arrays of values, and a text `body`. Redirects and HTTP error statuses are returned as received. To follow a redirect, make another call to its destination if that origin has been imported. Treat response data as untrusted.
+
+Calls are serialized across MCP clients. Each call has 60 seconds for queueing, bridge readiness, publication, and reply matching. Proxy errors such as `OriginNotImported` and `TimeoutError` leave the tool waiting for another proxy's HTTP response. If no valid response arrives before the deadline, the tool reports counts of matching errors, target timeouts, and malformed replies. Cancellation, reader reset, permanent feed failure, and shutdown end the active call. A dispatched GET may continue after the tool ends. The bridge publishes each command once.
+
+Commands and replies remain visible in feed history. The command must fit both the proxy's 64 KiB command limit and the bridge's `MaxMessageSizeBytes`. Replies above the bridge receive limit appear in history with the body omitted and cannot be matched.
 
 ## History and cursors
 
@@ -104,4 +123,4 @@ dotnet test src/Examples/Rce3Mcp/Rce3Mcp.slnx
 dotnet build src/Examples/Rce3Mcp/Rce3Mcp.slnx -c Release -warnaserror
 ```
 
-Tests cover controlled upstream responses, the official MCP HTTP client with modern and older protocols, independent client cursors, and delivery/restart against FeedServer. The application references only the official MCP SDK and ASP.NET Core; the FeedServer reference is test-only.
+Tests cover controlled upstream responses, the official MCP HTTP client with modern and older protocols, independent client cursors, Request Proxy reply selection and lifecycle handling, and delivery/restart against FeedServer. The application references only the official MCP SDK and ASP.NET Core; the FeedServer reference is test-only.

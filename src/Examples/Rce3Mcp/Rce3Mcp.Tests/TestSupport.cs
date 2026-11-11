@@ -33,20 +33,22 @@ internal sealed class ControlledHandler : HttpMessageHandler
 
 internal sealed class RetryTimeProvider : TimeProvider
 {
-    private readonly Channel<Action> _timers = Channel.CreateUnbounded<Action>();
+    private readonly Channel<Action> _retries = Channel.CreateUnbounded<Action>();
+    private readonly Channel<Action> _deadlines = Channel.CreateUnbounded<Action>();
     public override DateTimeOffset GetUtcNow() => new(2026, 11, 5, 12, 0, 0, TimeSpan.Zero);
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
-        Assert.Equal(TimeSpan.FromSeconds(1), dueTime);
+        var timers = dueTime == TimeSpan.FromSeconds(60) ? _deadlines : _retries;
+        if (timers == _retries) Assert.Equal(TimeSpan.FromSeconds(1), dueTime);
         var timer = new ManualTimer(() => callback(state));
-        _timers.Writer.TryWrite(timer.Fire);
+        timers.Writer.TryWrite(timer.Fire);
         return timer;
     }
-    public async Task ReleaseRetryAsync()
-    {
-        var fire = await _timers.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
-        fire();
-    }
+    public async Task ReleaseRetryAsync() => (await NextAsync(_retries))();
+    public Task<Action> NextDeadlineAsync() => NextAsync(_deadlines);
+
+    private static Task<Action> NextAsync(Channel<Action> timers) =>
+        timers.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
     private sealed class ManualTimer(Action callback) : ITimer
     {
         private bool _disposed;
@@ -68,15 +70,17 @@ internal sealed class BridgeHarness : IAsyncDisposable
     public FeedBridge Bridge { get; }
     public FeedTools Tools { get; }
     private readonly HttpClient _client;
+    private readonly RequestProxyRequests _requestProxy;
     public BridgeHarness(string? authorization = null, McpOptions? options = null)
     {
         Options = options ?? new();
         History = new(Options, Time);
         State = new(Identity, History, Time);
+        _requestProxy = new(State, Options, Time);
         _client = new(Handler) { Timeout = Timeout.InfiniteTimeSpan };
         Bridge = new(_client, new(new Uri("http://feed.test/00000000-0000-0000-0000-000000000000"), authorization),
-            Identity, Options, History, State, Time, NullLogger<FeedBridge>.Instance);
-        Tools = new(Bridge, History, State, Options);
+            Identity, Options, History, State, _requestProxy, Time, NullLogger<FeedBridge>.Instance);
+        Tools = new(Bridge, History, State, Options, _requestProxy);
     }
     public async Task<PendingRequest> StartAsync()
     {
@@ -94,6 +98,8 @@ internal sealed class BridgeHarness : IAsyncDisposable
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await Bridge.StopAsync(deadline.Token);
         Bridge.Dispose();
+        _requestProxy.Dispose();
+        State.Dispose();
         _client.Dispose();
     }
 }

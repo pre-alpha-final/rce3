@@ -7,7 +7,8 @@ namespace Rce3Mcp;
 internal sealed class BridgeException(string message) : Exception(message);
 
 internal sealed class FeedBridge(HttpClient client, FeedConnection connection, ReaderIdentity identity,
-    McpOptions options, MessageHistory history, BridgeState state, TimeProvider timeProvider, ILogger<FeedBridge> logger)
+    McpOptions options, MessageHistory history, BridgeState state, RequestProxyRequests requestProxy,
+    TimeProvider timeProvider, ILogger<FeedBridge> logger)
     : BackgroundService
 {
     private CancellationToken _stoppingToken;
@@ -43,6 +44,7 @@ internal sealed class FeedBridge(HttpClient client, FeedConnection connection, R
                         var contentType = response.Content.Headers.NonValidated.TryGetValues("Content-Type", out var values)
                             ? string.Join(", ", values) : "application/octet-stream";
                         history.Add(body, contentType, length);
+                        requestProxy.Receive(body);
                         state.PollSucceeded(receivedMessage: true);
                         continue;
                     }

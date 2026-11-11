@@ -63,6 +63,7 @@ public static class Program
         }) { Timeout = Timeout.InfiniteTimeSpan });
         builder.Services.AddSingleton<MessageHistory>();
         builder.Services.AddSingleton<BridgeState>();
+        builder.Services.AddSingleton<RequestProxyRequests>();
         builder.Services.AddSingleton<FeedBridge>();
         builder.Services.AddHostedService(provider => provider.GetRequiredService<FeedBridge>());
         builder.Services.AddMcpServer(server =>
@@ -87,8 +88,9 @@ public static class Program
             await next(context);
         });
         app.MapMcp("/mcp");
-        // Resolve before starting either HTTP or the worker: an invalid retained identity fails startup.
-        _ = app.Services.GetRequiredService<ReaderIdentity>();
+        // Resolve the retained identity at startup and release waiting tool calls before HTTP drains.
+        var state = app.Services.GetRequiredService<BridgeState>();
+        app.Lifetime.ApplicationStopping.Register(() => state.Set("stopping"));
         return app;
     }
 }

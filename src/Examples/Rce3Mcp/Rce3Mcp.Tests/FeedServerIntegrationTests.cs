@@ -20,18 +20,8 @@ public sealed class FeedServerIntegrationTests
     [InlineData("raw integration test key")]
     public async Task RealFeedRegistersBeforePublishEchoesOnceAndRetainsOfflineQueue(string? authorization)
     {
-        using var factory = new WebApplicationFactory<FeedServer.Program>().WithWebHostBuilder(builder =>
-        {
-            builder.UseContentRoot(FeedServerDirectory());
-            builder.ConfigureLogging(logging => logging.ClearProviders());
-            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["FeedServer:PollTimeout"] = "00:00:00.050"
-            }));
-        });
-        factory.UseKestrel(0);
-        using var feedClient = factory.CreateClient(new() { AllowAutoRedirect = false });
-        feedClient.BaseAddress = new UriBuilder(factory.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single()) { Host = "127.0.0.1" }.Uri;
+        using var factory = CreateFeedFactory();
+        using var feedClient = ConnectFeed(factory);
         var feedId = Guid.NewGuid();
         var readerId = Guid.NewGuid();
         var feedUrl = new Uri(feedClient.BaseAddress!, feedId.ToString("D")).AbsoluteUri;
@@ -85,6 +75,72 @@ public sealed class FeedServerIntegrationTests
         var status = await restartedMcp.CallToolAsync("get_status");
         Assert.Equal(readerId.ToString(), status.StructuredContent!.Value.GetProperty("readerId").GetString());
         Assert.Equal(0, status.StructuredContent.Value.GetProperty("resetCount").GetInt64());
+    }
+
+    [Fact]
+    public async Task RequestProxyRoundTripUsesTheRealFeedAndRetainsCommandAndReplyInMcpHistory()
+    {
+        const string target = "https://target.example/api?query=%2F";
+        const string authorization = "raw integration test key";
+        using var factory = CreateFeedFactory();
+        using var feedClient = ConnectFeed(factory);
+        feedClient.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", authorization);
+        var feed = new Uri(feedClient.BaseAddress!, Guid.NewGuid().ToString("D"));
+        var proxyReader = new Uri($"{feed.AbsoluteUri}/{Guid.NewGuid():D}");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var registered = await feedClient.GetAsync(proxyReader, deadline.Token);
+        Assert.Equal(HttpStatusCode.NoContent, registered.StatusCode);
+
+        using var upstream = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+        await using var bridge = await HostedBridge.StartAsync(upstream, Guid.NewGuid(), feed.AbsoluteUri, authorization);
+        await using var mcp = await bridge.ConnectAsync();
+        var call = mcp.CallToolAsync("requestproxy", new Dictionary<string, object?> { ["url"] = target },
+            cancellationToken: deadline.Token).AsTask();
+
+        var command = "requestproxy: " + target;
+        while (true)
+        {
+            using var message = await feedClient.GetAsync(proxyReader, deadline.Token);
+            if (message.StatusCode == HttpStatusCode.NoContent) continue;
+            Assert.Equal(HttpStatusCode.OK, message.StatusCode);
+            Assert.Equal(command, await message.Content.ReadAsStringAsync(deadline.Token));
+            break;
+        }
+
+        var reply = RequestProxyTests.HttpReply(target, 404, "actual target response");
+        using var posted = await feedClient.PostAsync(feed, new StringContent(reply), deadline.Token);
+        Assert.Equal(HttpStatusCode.OK, posted.StatusCode);
+        var result = await call;
+        Assert.False(result.IsError);
+        Assert.Equal(404, result.StructuredContent!.Value.GetProperty("status").GetInt32());
+        Assert.Equal("actual target response", result.StructuredContent.Value.GetProperty("body").GetString());
+
+        var history = await mcp.CallToolAsync("get_messages", cancellationToken: deadline.Token);
+        Assert.Equal(new[] { command, reply }, history.StructuredContent!.Value.GetProperty("messages")
+            .EnumerateArray().Select(message => message.GetProperty("body").GetString()));
+    }
+
+    private static WebApplicationFactory<FeedServer.Program> CreateFeedFactory()
+    {
+        var factory = new WebApplicationFactory<FeedServer.Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseContentRoot(FeedServerDirectory());
+            builder.ConfigureLogging(logging => logging.ClearProviders());
+            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["FeedServer:PollTimeout"] = "00:00:00.050"
+            }));
+        });
+        factory.UseKestrel(0);
+        return factory;
+    }
+
+    private static HttpClient ConnectFeed(WebApplicationFactory<FeedServer.Program> factory)
+    {
+        var client = factory.CreateClient(new() { AllowAutoRedirect = false });
+        var address = factory.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
+        client.BaseAddress = new UriBuilder(address) { Host = "127.0.0.1" }.Uri;
+        return client;
     }
 
     private static string FeedServerDirectory([CallerFilePath] string source = "") =>
