@@ -67,6 +67,10 @@ The debug client displays received bodies as text.
 
 The `requestproxy` tool sends a GET command to a running Request Proxy on the same feed and waits for the first HTTP response. Start the proxy and load a HAR for the target origin before calling the tool. Replies are matched by URL, so a late reply can satisfy a later call for the same URL. [Request Proxy setup](src/Examples/RequestProxy/README.MD)
 
+## WebServer example
+
+[WebServer](src/Examples/WebServer/README.MD) serves a static site through an RCE3 feed. A browser-facing HTTP gateway relays requests to a hosting worker that uses outbound feed connections.
+
 ## Example app reader identities
 
 Youtube, Mudslide, TabletUI, and Rce3Mcp each generate a reader ID once, save it before connecting, and reuse it across restarts. Startup polls directly; it never resets a retained queue. Overflow recovery (`410 Gone`) resets the same reader and discards its unusable queue.

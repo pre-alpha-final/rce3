@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="WebServer.Core/WebServer.Core.csproj" />
+  <Project Path="WebServer.Gateway/WebServer.Gateway.csproj" />
+  <Project Path="WebServer.Host/WebServer.Host.csproj" />
+  <Project Path="WebServer.Tests/WebServer.Tests.csproj" />
+</Solution>
