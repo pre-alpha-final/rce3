@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="RequestProxy/RequestProxy.csproj" />
+  <Project Path="RequestProxy.Tests/RequestProxy.Tests.csproj" />
+</Solution>

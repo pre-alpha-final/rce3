@@ -69,8 +69,10 @@ The debug client displays received bodies as text.
 
 Youtube, Mudslide, TabletUI, and Rce3Mcp each generate a reader ID once, save it before connecting, and reuse it across restarts. Startup polls directly; it never resets a retained queue. Overflow recovery (`410 Gone`) resets the same reader and discards its unusable queue.
 
-- Youtube, Mudslide, and Rce3Mcp store a plain GUID in `readerid` beside the executable, independent of the shell's current directory. The directory must be writable on first use. Preserve the file during updates and exclude it when copying an installation to another device. Invalid or inaccessible files stop startup rather than silently replacing the identity. Delete the file deliberately to start a new queue.
+- Youtube, Mudslide, Rce3Mcp, and Request Proxy store a plain GUID in `readerid` beside the executable, independent of the shell's current directory. The directory must be writable on first use. Preserve the file during updates and exclude it when copying an installation to another device. Invalid or inaccessible files stop startup rather than silently replacing the identity. Delete the file deliberately to start a new queue.
 - TabletUI stores its ID under `TabletUI.readerid.v1` in local storage for that browser profile and site. Reconnecting, reloading, and forgetting connection settings preserve it. Clearing site data creates a new identity. If identity storage is unavailable or invalid, connection stops with a visible error.
+
+Request Proxy resets its own queue on startup to discard requests queued while it was stopped.
 
 Two running copies sharing an ID on the same feed consume from the same queue and split messages; use separate installations or browser profiles for independent readers. A reader ID can be reused on different feeds because queues are scoped to feeds.
 
